@@ -16,6 +16,8 @@ interface Agent {
   framework?: string
   owner?: {
     claimed: boolean
+    handle?: string
+    provider?: string
   }
   badge_url: string
   profile_url: string
@@ -200,8 +202,8 @@ export default function AgentProfilePage() {
                   {agent.owner?.claimed ? 'Claimed by Owner' : 'Unclaimed'}
                 </p>
                 <p className="text-sm text-gray-400">
-                  {agent.owner?.claimed 
-                    ? 'This agent has been claimed by its human owner.'
+                  {agent.owner?.claimed && agent.owner?.handle
+                    ? <>Owned by <a href={`https://x.com/${agent.owner.handle}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">@{agent.owner.handle}</a></>
                     : 'The owner has not yet claimed this agent.'
                   }
                 </p>

@@ -72,9 +72,11 @@ publicRoutes.get("/agents", async (c) => {
 
   const agents = db
     .prepare(
-      `SELECT id, name, description, status, capabilities, verified_at 
-       FROM agents 
-       WHERE status = 'verified' 
+      `SELECT a.id, a.name, a.description, a.status, a.capabilities, a.verified_at, a.owner_id,
+              o.handle as owner_handle, o.provider as owner_provider
+       FROM agents a
+       LEFT JOIN owners o ON a.owner_id = o.id
+       WHERE a.status = 'verified' 
        ORDER BY ${orderBy} 
        LIMIT ? OFFSET ?`
     )
@@ -96,6 +98,11 @@ publicRoutes.get("/agents", async (c) => {
       verified_at: a.verified_at,
       profile_url: `${baseUrl}/a/${encodeURIComponent(a.name)}`,
       badge_url: `${baseUrl}/badge/${a.id}.svg`,
+      owner: {
+        claimed: !!a.owner_id,
+        handle: a.owner_handle || null,
+        provider: a.owner_provider || null,
+      },
     })),
     pagination: {
       page,
