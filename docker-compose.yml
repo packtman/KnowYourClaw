@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  agentproof:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - BASE_URL=http://localhost:3000
+      - DATABASE_PATH=/app/data/agentproof.db
+      # Add your JWT keys here or generate on first run
+      # - JWT_PRIVATE_KEY=
+      # - JWT_PUBLIC_KEY=
+    volumes:
+      - agentproof_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  agentproof_data:
