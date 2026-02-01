@@ -31,14 +31,12 @@ export default function DocsPage() {
     const elements: React.ReactElement[] = []
     let inCodeBlock = false
     let codeContent = ''
-    let _codeLanguage = ''
     let codeBlockId = 0
     
     lines.forEach((line, index) => {
       if (line.startsWith('```')) {
         if (!inCodeBlock) {
           inCodeBlock = true
-          _codeLanguage = line.slice(3)
           codeContent = ''
         } else {
           inCodeBlock = false
