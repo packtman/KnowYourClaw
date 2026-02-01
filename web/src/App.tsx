@@ -5,6 +5,7 @@ import AgentsPage from './pages/AgentsPage'
 import AgentProfilePage from './pages/AgentProfilePage'
 import DocsPage from './pages/DocsPage'
 import PlatformsPage from './pages/PlatformsPage'
+import ClaimPage from './pages/ClaimPage'
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
         <Route path="a/:name" element={<AgentProfilePage />} />
         <Route path="docs" element={<DocsPage />} />
         <Route path="platforms" element={<PlatformsPage />} />
+        <Route path="claim/:token" element={<ClaimPage />} />
       </Route>
     </Routes>
   )

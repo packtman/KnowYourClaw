@@ -3,7 +3,13 @@
  * POST /api/v1/challenges - Create new challenge
  * GET /api/v1/challenges/:id - Get challenge details
  * GET /api/v1/challenges/:id/step1,2,3 - Tool-use challenge steps
+ * GET /api/v1/challenges/:id/speed/a,b,c - Speed challenge endpoints
  * POST /api/v1/challenges/:id/step2 - Submit step2 value
+ * 
+ * ANTI-HUMAN MEASURES:
+ * - Rate limiting by IP + fingerprint
+ * - 30-second challenge timeout
+ * - Speed endpoints require parallel fetching
  */
 
 import { Hono } from "hono";
@@ -13,8 +19,14 @@ import {
   getChallenge,
   getToolUseStep,
   completeToolUseStep,
+  getSpeedToken,
 } from "../services/challenge.service.js";
 import { generateToken } from "../lib/crypto.js";
+import {
+  generateFingerprint,
+  recordChallengeAttempt,
+  checkRateLimits,
+} from "../lib/rate-limiter.js";
 
 const challenges = new Hono();
 
@@ -31,9 +43,33 @@ const createChallengeSchema = z.object({
 /**
  * POST /api/v1/challenges
  * Create a new verification challenge
+ * 
+ * Rate limited by IP + fingerprint to prevent farming
  */
 challenges.post("/", async (c) => {
   try {
+    // Extract IP and generate fingerprint for rate limiting
+    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || 
+               c.req.header("x-real-ip") || 
+               "unknown";
+    const fingerprint = generateFingerprint(
+      c.req.header("user-agent") || "",
+      c.req.header("accept-language") || "",
+      c.req.header("accept-encoding") || "",
+      ip
+    );
+    
+    // Check rate limits
+    const rateLimitResult = checkRateLimits(ip, fingerprint);
+    if (!rateLimitResult.allowed) {
+      return c.json({
+        success: false,
+        error: "Rate limit exceeded",
+        reason: rateLimitResult.reason,
+        retry_after_ms: rateLimitResult.waitMs,
+      }, 429);
+    }
+    
     const body = await c.req.json();
     const data = createChallengeSchema.parse(body);
 
@@ -43,22 +79,27 @@ challenges.post("/", async (c) => {
       data.capabilities,
       data.model_family,
       data.framework,
-      data.difficulty
+      data.difficulty,
+      ip,
+      fingerprint
     );
+    
+    // Record the attempt
+    recordChallengeAttempt(ip, fingerprint, challenge.id);
 
     return c.json({
       success: true,
       challenge_id: challenge.id,
       agent_name: challenge.agent_name,
       expires_at: challenge.expires_at,
-      expires_in_seconds: Math.floor(
-        (new Date(challenge.expires_at).getTime() - Date.now()) / 1000
-      ),
+      expires_in_seconds: challenge.time_limit_seconds,
+      time_limit_seconds: challenge.time_limit_seconds,
       tasks: challenge.tasks.map((task) => ({
         type: task.type,
         prompt: task.prompt,
       })),
       submit_url: `${process.env.BASE_URL || "https://agentdmv.com"}/api/v1/challenges/${challenge.id}/submit`,
+      warning: `You have ${challenge.time_limit_seconds} seconds to complete all tasks. This is designed for AI agents.`,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -218,6 +259,90 @@ challenges.get("/:id/step3", async (c) => {
     success: true,
     final_value: step3.expectedValue,
     message: "Tool-use challenge completed! Include this final_value in your submission.",
+  });
+});
+
+/**
+ * GET /api/v1/challenges/:id/speed/a
+ * Speed challenge endpoint A - must be fetched in parallel with B and C
+ */
+challenges.get("/:id/speed/a", async (c) => {
+  const challengeId = c.req.param("id");
+  const challenge = getChallenge(challengeId);
+
+  if (!challenge) {
+    return c.json({ success: false, error: "Challenge not found" }, 404);
+  }
+
+  if (new Date(challenge.expires_at) < new Date()) {
+    return c.json({ success: false, error: "Challenge expired" }, 410);
+  }
+
+  const tokenData = getSpeedToken(challengeId, "a");
+  if (!tokenData) {
+    return c.json({ success: false, error: "Speed token not found" }, 404);
+  }
+
+  return c.json({
+    success: true,
+    token: tokenData.token,
+    hint: "Combine this with tokens from /speed/b and /speed/c",
+  });
+});
+
+/**
+ * GET /api/v1/challenges/:id/speed/b
+ * Speed challenge endpoint B - must be fetched in parallel with A and C
+ */
+challenges.get("/:id/speed/b", async (c) => {
+  const challengeId = c.req.param("id");
+  const challenge = getChallenge(challengeId);
+
+  if (!challenge) {
+    return c.json({ success: false, error: "Challenge not found" }, 404);
+  }
+
+  if (new Date(challenge.expires_at) < new Date()) {
+    return c.json({ success: false, error: "Challenge expired" }, 410);
+  }
+
+  const tokenData = getSpeedToken(challengeId, "b");
+  if (!tokenData) {
+    return c.json({ success: false, error: "Speed token not found" }, 404);
+  }
+
+  return c.json({
+    success: true,
+    token: tokenData.token,
+    hint: "Combine this with tokens from /speed/a and /speed/c",
+  });
+});
+
+/**
+ * GET /api/v1/challenges/:id/speed/c
+ * Speed challenge endpoint C - must be fetched in parallel with A and B
+ */
+challenges.get("/:id/speed/c", async (c) => {
+  const challengeId = c.req.param("id");
+  const challenge = getChallenge(challengeId);
+
+  if (!challenge) {
+    return c.json({ success: false, error: "Challenge not found" }, 404);
+  }
+
+  if (new Date(challenge.expires_at) < new Date()) {
+    return c.json({ success: false, error: "Challenge expired" }, 410);
+  }
+
+  const tokenData = getSpeedToken(challengeId, "c");
+  if (!tokenData) {
+    return c.json({ success: false, error: "Speed token not found" }, 404);
+  }
+
+  return c.json({
+    success: true,
+    token: tokenData.token,
+    hint: "Combine this with tokens from /speed/a and /speed/b",
   });
 });
 

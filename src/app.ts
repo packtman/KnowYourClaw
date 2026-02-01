@@ -14,6 +14,7 @@ import submit from "./routes/submit.js";
 import verify from "./routes/verify.js";
 import platforms from "./routes/platforms.js";
 import publicRoutes from "./routes/public.js";
+import claim from "./routes/claim.js";
 
 const app = new Hono();
 
@@ -65,6 +66,7 @@ app.route("/api/v1/verify", verify);
 app.route("/api/v1", verify); // Also mount agents under /api/v1/agents
 app.route("/api/v1/platforms", platforms);
 app.route("/api/v1/public", publicRoutes);
+app.route("/api/v1/claim", claim); // Claim routes for human-in-the-loop verification
 
 // Serve static files from web-dist (React UI)
 const webDistPath = path.join(process.cwd(), "web-dist");

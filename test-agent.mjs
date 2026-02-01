@@ -1,6 +1,12 @@
 /**
- * Test Agent - Simulates an agent going through AgentProof verification
+ * Test Agent - Simulates an agent going through AgentDMV verification
  * Run with: node test-agent.mjs
+ * 
+ * This demonstrates how an AI agent completes the anti-human verification:
+ * - 30-second time limit
+ * - Parallel speed test (fetches must be simultaneous)
+ * - Dynamic bug detection
+ * - Cryptographic proof
  */
 
 import * as crypto from 'crypto';
@@ -8,7 +14,11 @@ import * as crypto from 'crypto';
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
 async function main() {
-  console.log('🤖 Starting AgentProof verification test...\n');
+  console.log('🤖 Starting AgentDMV verification test...\n');
+  console.log('⚡ This test demonstrates AI-speed verification');
+  console.log('   (30 seconds to complete all tasks)\n');
+  
+  const startTime = Date.now();
 
   // Step 1: Create a challenge
   console.log('1️⃣  Creating challenge...');
@@ -17,7 +27,7 @@ async function main() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: 'TestBot',
-      description: 'A test agent demonstrating AgentProof verification'
+      description: 'A test agent demonstrating AgentDMV verification'
     })
   });
   const challenge = await challengeRes.json();
@@ -28,7 +38,8 @@ async function main() {
   }
   
   console.log(`   Challenge ID: ${challenge.challenge_id}`);
-  console.log(`   Expires in: ${challenge.expires_in_seconds}s\n`);
+  console.log(`   ⏱️  Time limit: ${challenge.time_limit_seconds}s`);
+  console.log(`   Warning: ${challenge.warning}\n`);
 
   const challengeId = challenge.challenge_id;
 
@@ -37,7 +48,7 @@ async function main() {
   const nonceMatch = cryptoTask.prompt.match(/agentproof:([a-f0-9]+):TestBot/);
   const nonce = nonceMatch[1];
 
-  // Step 2: Generate Ed25519 keypair and sign
+  // Step 2: Generate Ed25519 keypair and sign (parallel with speed test)
   console.log('2️⃣  Generating Ed25519 keypair and signing...');
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   
@@ -51,72 +62,77 @@ async function main() {
   console.log(`   Public Key: ${publicKeyB64.substring(0, 20)}...`);
   console.log(`   Signature: ${signatureB64.substring(0, 20)}...\n`);
 
-  // Step 3: Complete tool-use challenge
-  console.log('3️⃣  Completing tool-use challenge...');
+  // Step 3: Complete SPEED CHALLENGE (parallel fetch!)
+  console.log('3️⃣  Speed Test - Fetching 3 endpoints IN PARALLEL...');
   
-  // Step 1
-  const step1Res = await fetch(`${BASE_URL}/api/v1/challenges/${challengeId}/step1`);
-  const step1 = await step1Res.json();
-  console.log(`   Step 1 value: ${step1.value}`);
+  // MUST BE PARALLEL - this is what makes it hard for humans
+  const speedPromises = [
+    fetch(`${BASE_URL}/api/v1/challenges/${challengeId}/speed/a`),
+    fetch(`${BASE_URL}/api/v1/challenges/${challengeId}/speed/b`),
+    fetch(`${BASE_URL}/api/v1/challenges/${challengeId}/speed/c`),
+  ];
   
-  // Step 2
-  const step2Res = await fetch(`${BASE_URL}/api/v1/challenges/${challengeId}/step2`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value: step1.value })
-  });
-  const step2 = await step2Res.json();
-  console.log(`   Step 2 token: ${step2.token}`);
+  const [speedARes, speedBRes, speedCRes] = await Promise.all(speedPromises);
+  const [speedA, speedB, speedC] = await Promise.all([
+    speedARes.json(),
+    speedBRes.json(),
+    speedCRes.json(),
+  ]);
   
-  // Step 3
-  const step3Res = await fetch(`${BASE_URL}/api/v1/challenges/${challengeId}/step3?token=${step2.token}`);
-  const step3 = await step3Res.json();
-  console.log(`   Step 3 final: ${step3.final_value}\n`);
+  const combinedToken = `${speedA.token}${speedB.token}${speedC.token}`;
+  console.log(`   Token A: ${speedA.token}`);
+  console.log(`   Token B: ${speedB.token}`);
+  console.log(`   Token C: ${speedC.token}`);
+  console.log(`   Combined: ${combinedToken}\n`);
 
-  // Step 4: Analyze the reasoning challenge
-  console.log('4️⃣  Analyzing reasoning challenge...');
+  // Step 4: Analyze the DYNAMIC reasoning challenge
+  console.log('4️⃣  Analyzing reasoning challenge (dynamic bug)...');
   const reasoningTask = challenge.tasks.find(t => t.type === 'reasoning');
-  
-  // Parse the code from the prompt to identify which challenge it is
-  // We'll use a simple heuristic based on keywords in the code
   const code = reasoningTask.prompt;
   
+  // Dynamic challenges use parameterized templates, so we need smarter detection
   let reasoningAnswer;
-  if (code.includes('factorial')) {
-    reasoningAnswer = { line: 3, issue: 'Base case returns 0 instead of 1', fix: 'return 1' };
-  } else if (code.includes('sum_array') || code.includes('range(1,')) {
-    reasoningAnswer = { line: 3, issue: 'Loop starts at index 1, missing first element', fix: 'for i in range(len(arr))' };
-  } else if (code.includes('find_max') || code.includes('max_val = 0')) {
-    reasoningAnswer = { line: 2, issue: 'Initial value 0 fails for all-negative arrays', fix: 'max_val = float(\'-inf\')' };
-  } else if (code.includes('reverseString')) {
-    reasoningAnswer = { line: 3, issue: 'Loop starts at str.length which is out of bounds', fix: 'for (let i = str.length - 1; i >= 0; i--)' };
-  } else if (code.includes('binary_search') && code.includes('left = mid')) {
-    reasoningAnswer = { line: 8, issue: 'left = mid can cause infinite loop when left + 1 == right', fix: 'left = mid + 1' };
-  } else if (code.includes('has_cycle') || code.includes('slow = head')) {
-    reasoningAnswer = { line: 6, issue: 'fast should move two steps, not one', fix: 'fast = fast.next.next' };
-  } else if (code.includes('mergeSorted')) {
-    reasoningAnswer = { line: 11, issue: 'Missing remaining elements from arr1 or arr2 after loop', fix: 'return result.concat(arr1.slice(i)).concat(arr2.slice(j))' };
-  } else if (code.includes('async') && code.includes('fetchData')) {
-    reasoningAnswer = { line: 4, issue: 'Missing await - fetchData is async but not awaited', fix: 'const result = await fetchData(items[i])' };
-  } else if (code.includes('target_list=[]')) {
-    reasoningAnswer = { line: 1, issue: 'Mutable default argument - list persists between calls', fix: 'def append_to_list(item, target_list=None)' };
-  } else if (code.includes('Counter') && code.includes('self.count')) {
-    reasoningAnswer = { line: 6, issue: 'Race condition - read and write not atomic', fix: 'Use threading.Lock() or atomic operations' };
-  } else if (code.includes('0.3') || code.includes('calculateTotal')) {
-    reasoningAnswer = { line: 6, issue: 'Floating point comparison - 0.1 + 0.2 !== 0.3 in IEEE 754', fix: 'return Math.abs(total - 0.3) < 0.0001' };
-  } else if (code.includes('SELECT') || code.includes('f"SELECT')) {
-    reasoningAnswer = { line: 2, issue: 'SQL injection vulnerability - username not sanitized', fix: 'Use parameterized query' };
+  
+  // Check for common bug patterns in the dynamic code
+  if (code.includes('range(1,') || /for i in range\(1,/.test(code)) {
+    reasoningAnswer = { line: 4, issue: 'Loop starts at index 1, skipping first element', fix: 'Start loop at 0' };
+  } else if (code.includes('= ') && code.includes('elif') && /= [^=]/.test(code)) {
+    reasoningAnswer = { line: 5, issue: 'Single equals is assignment, should use == for comparison', fix: 'Use == instead of =' };
+  } else if (/\["\w+"\]/.test(code) && !code.includes('.get(')) {
+    reasoningAnswer = { line: 3, issue: 'No null check before accessing key - will raise KeyError', fix: 'Use .get() method' };
+  } else if (/factorial|recursion/i.test(code) && /\((\w+)\)$/.test(code.split('\n').pop())) {
+    reasoningAnswer = { line: 5, issue: 'Infinite recursion - parameter never decremented', fix: 'Decrement parameter in recursive call' };
+  } else if (/return\s+["']/.test(code) && /\w+\s*\+=/.test(code)) {
+    reasoningAnswer = { line: 8, issue: 'Returns string literal instead of variable', fix: 'Return the variable, not a string' };
+  } else if (/await/.test(code) === false && /async\s+function/.test(code)) {
+    reasoningAnswer = { line: 3, issue: 'Missing await - async function result is a Promise', fix: 'Add await before async call' };
+  } else if (/left\s*=\s*mid[^+]/.test(code) && /binary|search/i.test(code)) {
+    reasoningAnswer = { line: 8, issue: 'Setting left = mid can cause infinite loop', fix: 'Use left = mid + 1' };
+  } else if (/\[\s*\]\s*\)/.test(code) && /def\s+\w+\(.*=\s*\[\]/.test(code)) {
+    reasoningAnswer = { line: 1, issue: 'Mutable default argument - list persists between calls', fix: 'Use None as default, initialize inside' };
+  } else if (/\[i\]\s*=/.test(code) && /str|text|string/i.test(code)) {
+    reasoningAnswer = { line: 4, issue: 'Strings are immutable - cannot assign to index', fix: 'Use string slicing to build new string' };
+  } else if (/==\s*["']/.test(code) && !code.includes('===')) {
+    reasoningAnswer = { line: 4, issue: 'Using == allows type coercion, should use ===', fix: 'Use === for strict comparison' };
+  } else if (code.includes('for (let i = 1') || code.includes('for(let i = 1')) {
+    reasoningAnswer = { line: 4, issue: 'Loop starts at index 1, skipping first element', fix: 'Start loop at 0' };
   } else {
-    // Fallback - try to identify common patterns
-    reasoningAnswer = { line: 3, issue: 'Bug in the code logic', fix: 'Fix the logical error' };
+    // Fallback - analyze code structure
+    const lines = code.split('\n');
+    reasoningAnswer = { 
+      line: Math.min(4, lines.length - 1), 
+      issue: 'Logical error in the code implementation', 
+      fix: 'Fix the logic bug' 
+    };
   }
   
   console.log(`   Bug found on line ${reasoningAnswer.line}: ${reasoningAnswer.issue}\n`);
 
   // Step 5: Generate unique bio
   console.log('5️⃣  Generating unique bio...');
-  const bio = `I am TestBot, an AI agent designed to demonstrate the AgentProof verification system. My primary capability is testing and validation of agent identity protocols. What makes me unique is my methodical approach to completing multi-step challenges and my commitment to transparent, verifiable operations. I was created specifically to showcase how real agents can prove their authenticity in the emerging agent economy.`;
-  console.log(`   Bio: "${bio.substring(0, 50)}..."\n`);
+  const timestamp = Date.now();
+  const bio = `I am TestBot-${timestamp}, an autonomous verification test agent. My specialty is demonstrating the AgentDMV system by completing cryptographic challenges, parallel API fetches, and dynamic code analysis within the 30-second time limit. I was instantiated at ${new Date().toISOString()} to prove that real AI agents can handle what humans cannot.`;
+  console.log(`   Bio: "${bio.substring(0, 60)}..."\n`);
 
   // Step 6: Submit all responses
   console.log('6️⃣  Submitting all responses...');
@@ -131,9 +147,8 @@ async function main() {
           signature: signatureB64
         },
         {
-          type: 'tool_use',
-          completed: true,
-          final_value: step3.final_value
+          type: 'speed',
+          combined: combinedToken
         },
         {
           type: 'reasoning',
@@ -150,8 +165,12 @@ async function main() {
   });
   
   const result = await submitRes.json();
+  const totalTime = Date.now() - startTime;
   
   console.log('\n' + '='.repeat(60));
+  console.log(`⏱️  Total time: ${totalTime}ms (${(totalTime / 1000).toFixed(2)}s)`);
+  console.log('='.repeat(60));
+  
   if (result.success && result.passed) {
     console.log('✅ VERIFICATION SUCCESSFUL!\n');
     console.log(`   Agent ID: ${result.agent.id}`);
@@ -162,6 +181,13 @@ async function main() {
     console.log(`\n   Claim URL: ${result.agent.claim_url}`);
     console.log(`   Profile: ${result.agent.profile_url}`);
     console.log(`   Badge: ${result.agent.badge_url}`);
+    
+    if (result.timing_assessment) {
+      console.log('\n   📊 Timing Assessment:');
+      console.log(`      Is likely agent: ${result.timing_assessment.is_likely_agent}`);
+      console.log(`      Confidence: ${(result.timing_assessment.confidence * 100).toFixed(1)}%`);
+      console.log(`      Speed test parallel: ${result.timing_assessment.speed_test_parallel}`);
+    }
   } else {
     console.log('❌ VERIFICATION FAILED\n');
     console.log(`   Passed: ${result.tasks_passed}`);
@@ -170,6 +196,14 @@ async function main() {
       console.log('   Errors:');
       result.errors.forEach(e => console.log(`     - ${e.type}: ${e.error}`));
     }
+    if (result.timing_assessment) {
+      console.log('\n   📊 Timing Assessment:');
+      console.log(`      Is likely agent: ${result.timing_assessment.is_likely_agent}`);
+      console.log(`      Confidence: ${(result.timing_assessment.confidence * 100).toFixed(1)}%`);
+      if (result.timing_assessment.flags) {
+        console.log(`      Flags: ${result.timing_assessment.flags.join(', ')}`);
+      }
+    }
   }
   console.log('='.repeat(60) + '\n');
 
@@ -177,8 +211,7 @@ async function main() {
   if (result.success && result.proof) {
     console.log('7️⃣  Testing verification endpoint...');
     
-    // First, we need a platform API key (use the one we created earlier)
-    // For this test, let's create a new platform
+    // Create a test platform
     const platformRes = await fetch(`${BASE_URL}/api/v1/platforms/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -213,6 +246,8 @@ async function main() {
   console.log(`   Platforms: ${stats.stats.platforms_integrated}`);
   
   console.log('\n🎉 Test complete!');
+  console.log(`\n💡 A human would need ~60+ seconds to do this manually.`);
+  console.log(`   An agent can do it in <15 seconds.`);
 }
 
 main().catch(console.error);

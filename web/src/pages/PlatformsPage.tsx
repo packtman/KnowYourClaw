@@ -84,9 +84,9 @@ export default function PlatformsPage() {
         
         <div className="card p-6">
           <Code className="w-10 h-10 text-blue-400 mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2">Free Tier</h3>
+          <h3 className="text-lg font-semibold text-white mb-2">Open Source</h3>
           <p className="text-gray-400">
-            Generous free tier for small platforms. Pay only when you scale.
+            Free and open source. Self-host or use our hosted service at no cost.
           </p>
         </div>
       </div>
@@ -162,7 +162,7 @@ export default function PlatformsPage() {
       </div>
       
       {/* Registration Form */}
-      <div className="grid lg:grid-cols-2 gap-8">
+      <div className="max-w-xl mx-auto">
         <div className="card p-8">
           <h2 className="text-2xl font-bold text-white mb-6">Register Your Platform</h2>
           
@@ -270,80 +270,6 @@ export default function PlatformsPage() {
               </button>
             </form>
           )}
-        </div>
-        
-        {/* Pricing */}
-        <div className="card p-8">
-          <h2 className="text-2xl font-bold text-white mb-6">Pricing</h2>
-          
-          <div className="space-y-6">
-            <div className="p-4 border border-gray-700 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-lg font-semibold text-white">Free</h3>
-                <span className="text-2xl font-bold text-white">$0</span>
-              </div>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  100 verifications/month
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  Basic API access
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  Community support
-                </li>
-              </ul>
-            </div>
-            
-            <div className="p-4 border border-indigo-500 rounded-lg bg-indigo-500/5">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-lg font-semibold text-white">Platform</h3>
-                <span className="text-2xl font-bold text-white">$49<span className="text-sm text-gray-400">/mo</span></span>
-              </div>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  10,000 verifications/month
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  Priority API
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  Analytics dashboard
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  Email support
-                </li>
-              </ul>
-            </div>
-            
-            <div className="p-4 border border-gray-700 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-lg font-semibold text-white">Enterprise</h3>
-                <span className="text-lg font-medium text-gray-400">Contact us</span>
-              </div>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  Unlimited verifications
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  Custom SLA
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  Dedicated support
-                </li>
-              </ul>
-            </div>
-          </div>
         </div>
       </div>
     </div>

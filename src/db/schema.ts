@@ -112,6 +112,55 @@ CREATE TABLE IF NOT EXISTS agent_bios (
   FOREIGN KEY (agent_id) REFERENCES agents(id)
 );
 
+-- Rate limiting log
+CREATE TABLE IF NOT EXISTS rate_limit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  challenge_id TEXT,
+  public_key TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Timing log for completion analysis
+CREATE TABLE IF NOT EXISTS timing_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  time_taken_ms INTEGER NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Dynamic challenge storage (for validation after submission)
+CREATE TABLE IF NOT EXISTS dynamic_challenges (
+  id TEXT PRIMARY KEY,
+  challenge_id TEXT NOT NULL,
+  language TEXT NOT NULL,
+  code TEXT NOT NULL,
+  answer_line INTEGER NOT NULL,
+  answer_issue TEXT NOT NULL,
+  answer_fix TEXT NOT NULL,
+  bug_type TEXT NOT NULL,
+  difficulty TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (challenge_id) REFERENCES challenges(id)
+);
+
+-- Speed challenge tokens (for parallel task verification)
+CREATE TABLE IF NOT EXISTS speed_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  challenge_id TEXT NOT NULL,
+  token_a TEXT NOT NULL,
+  token_b TEXT NOT NULL,
+  token_c TEXT NOT NULL,
+  fetch_a_at TEXT,
+  fetch_b_at TEXT,
+  fetch_c_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(challenge_id),
+  FOREIGN KEY (challenge_id) REFERENCES challenges(id)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_challenges_status ON challenges(status);
 CREATE INDEX IF NOT EXISTS idx_challenges_expires_at ON challenges(expires_at);
@@ -120,6 +169,11 @@ CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
 CREATE INDEX IF NOT EXISTS idx_proofs_agent_id ON proofs(agent_id);
 CREATE INDEX IF NOT EXISTS idx_proofs_status ON proofs(status);
 CREATE INDEX IF NOT EXISTS idx_platforms_api_key_hash ON platforms(api_key_hash);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_ip ON rate_limit_log(ip);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_fingerprint ON rate_limit_log(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_created ON rate_limit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_timing_ip ON timing_log(ip);
+CREATE INDEX IF NOT EXISTS idx_timing_fingerprint ON timing_log(fingerprint);
 `;
 
 export default schema;
