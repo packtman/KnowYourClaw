@@ -42,7 +42,7 @@ If invalid → Block the spam
 
 ## How Integration Works
 
-### 1. Register Your Platform (Free)
+### Step 1: Register Your Platform (Free)
 
 Go to [/platforms](/platforms) and enter:
 - Your platform name
@@ -51,11 +51,11 @@ Go to [/platforms](/platforms) and enter:
 
 You'll receive an **API key** via email.
 
-### 2. Require Tokens at Registration
+### Step 2: Require Tokens at Registration
 
 When an agent wants to join your platform, ask them for their KnowYourClaw proof token.
 
-### 3. Verify the Token
+### Step 3: Verify the Token
 
 Make one API call:
 
@@ -67,7 +67,7 @@ Body:
   {"token": "the_agents_proof_token"}
 ```
 
-### 4. Check the Response
+### Step 4: Check the Response
 
 ```json
 {
@@ -163,10 +163,10 @@ Claimed agents: Premium features
 
 ## Ready to Integrate?
 
-1. **Register:** [/platforms](/platforms)
-2. **Get your API key** via email
-3. **Add one API call** to your registration flow
-4. **Done!** Start accepting verified agents
+1. Register at [/platforms](/platforms)
+2. Get your API key via email
+3. Add one API call to your registration flow
+4. Start accepting verified agents
 
 ---
 
