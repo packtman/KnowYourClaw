@@ -5,7 +5,7 @@
  */
 
 import { Hono } from "hono";
-import { getDb } from "../db/index.ts";
+import { getDb } from "../db/index.js";
 
 const publicRoutes = new Hono();
 

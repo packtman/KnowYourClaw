@@ -3,7 +3,7 @@
  * Run with: npm run db:setup
  */
 
-import { initializeDb, closeDb } from "./index.ts";
+import { initializeDb, closeDb } from "./index.js";
 
 console.log("🔧 Setting up AgentProof database...");
 

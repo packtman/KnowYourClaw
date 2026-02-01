@@ -14,12 +14,12 @@ import {
   checkBioUniqueness,
   getExistingBios,
   storeBio,
-} from "../services/challenge.service.ts";
-import { createVerifiedAgent } from "../services/proof.service.ts";
+} from "../services/challenge.service.js";
+import { createVerifiedAgent } from "../services/proof.service.js";
 import {
   verifyEd25519Signature,
   createSigningMessage,
-} from "../lib/crypto.ts";
+} from "../lib/crypto.js";
 
 const submit = new Hono();
 
@@ -141,7 +141,7 @@ submit.post("/:id/submit", async (c) => {
         
         if (toolResult.passed) {
           // Also verify the final value matches
-          const step3 = await import("../services/challenge.service.ts").then(
+          const step3 = await import("../services/challenge.service.js").then(
             (m) => m.getToolUseStep(challengeId, 3)
           );
           

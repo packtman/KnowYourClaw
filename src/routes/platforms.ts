@@ -5,7 +5,7 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
-import { registerPlatform } from "../services/platform.service.ts";
+import { registerPlatform } from "../services/platform.service.js";
 
 const platforms = new Hono();
 

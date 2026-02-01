@@ -3,8 +3,8 @@
  * Handles platform registration and API key management
  */
 
-import { getDb, generateId } from "../db/index.ts";
-import { generateApiKey, hashApiKey } from "../lib/crypto.ts";
+import { getDb, generateId } from "../db/index.js";
+import { generateApiKey, hashApiKey } from "../lib/crypto.js";
 
 export interface Platform {
   id: string;

@@ -13,8 +13,8 @@ import {
   getChallenge,
   getToolUseStep,
   completeToolUseStep,
-} from "../services/challenge.service.ts";
-import { generateToken } from "../lib/crypto.ts";
+} from "../services/challenge.service.js";
+import { generateToken } from "../lib/crypto.js";
 
 const challenges = new Hono();
 

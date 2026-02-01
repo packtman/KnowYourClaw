@@ -9,11 +9,11 @@ import { prettyJSON } from "hono/pretty-json";
 import * as fs from "fs";
 import * as path from "path";
 
-import challenges from "./routes/challenges.ts";
-import submit from "./routes/submit.ts";
-import verify from "./routes/verify.ts";
-import platforms from "./routes/platforms.ts";
-import publicRoutes from "./routes/public.ts";
+import challenges from "./routes/challenges.js";
+import submit from "./routes/submit.js";
+import verify from "./routes/verify.js";
+import platforms from "./routes/platforms.js";
+import publicRoutes from "./routes/public.js";
 
 const app = new Hono();
 

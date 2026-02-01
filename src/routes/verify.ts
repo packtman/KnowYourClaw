@@ -6,13 +6,13 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
-import { verifyProofToken } from "../lib/jwt.ts";
-import { getAgent, recordVerification, getProof } from "../services/proof.service.ts";
+import { verifyProofToken } from "../lib/jwt.js";
+import { getAgent, recordVerification, getProof } from "../services/proof.service.js";
 import {
   validateApiKey,
   incrementVerificationCount,
   checkRateLimit,
-} from "../services/platform.service.ts";
+} from "../services/platform.service.js";
 
 const verify = new Hono();
 

@@ -4,7 +4,7 @@
  */
 
 import Database from "better-sqlite3";
-import { schema } from "./schema.ts";
+import { schema } from "./schema.js";
 import * as fs from "fs";
 import * as path from "path";
 

@@ -3,9 +3,9 @@
  */
 
 import { serve } from "@hono/node-server";
-import app from "./app.ts";
-import { initializeDb } from "./db/index.ts";
-import { initializeKeys } from "./lib/jwt.ts";
+import app from "./app.js";
+import { initializeDb } from "./db/index.js";
+import { initializeKeys } from "./lib/jwt.js";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 

@@ -3,14 +3,14 @@
  * Handles challenge creation, validation, and completion
  */
 
-import { getDb, generateId } from "../db/index.ts";
-import { generateNonce, generateToken } from "../lib/crypto.ts";
+import { getDb, generateId } from "../db/index.js";
+import { generateNonce, generateToken } from "../lib/crypto.js";
 import {
   getRandomChallenge,
   validateReasoningAnswer,
   type ReasoningChallenge,
-} from "../lib/reasoning-challenges.ts";
-import { validateBio, checkBioUniqueness, simpleHash } from "../lib/similarity.ts";
+} from "../lib/reasoning-challenges.js";
+import { validateBio, checkBioUniqueness, simpleHash } from "../lib/similarity.js";
 
 // Types
 export interface ChallengeTask {
@@ -301,6 +301,6 @@ export function storeBio(agentId: string, bio: string): void {
 }
 
 // Import for reasoning validation
-import { reasoningChallenges } from "../lib/reasoning-challenges.ts";
+import { reasoningChallenges } from "../lib/reasoning-challenges.js";
 
 export { validateReasoningAnswer, validateBio, checkBioUniqueness };

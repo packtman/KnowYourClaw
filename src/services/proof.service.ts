@@ -3,9 +3,9 @@
  * Handles agent creation and proof token generation
  */
 
-import { getDb, generateId } from "../db/index.ts";
-import { signProofToken, type AgentProofPayload } from "../lib/jwt.ts";
-import { generateToken } from "../lib/crypto.ts";
+import { getDb, generateId } from "../db/index.js";
+import { signProofToken, type AgentProofPayload } from "../lib/jwt.js";
+import { generateToken } from "../lib/crypto.js";
 
 export interface Agent {
   id: string;
