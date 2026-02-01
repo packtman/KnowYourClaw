@@ -66,25 +66,58 @@ app.route("/api/v1", verify); // Also mount agents under /api/v1/agents
 app.route("/api/v1/platforms", platforms);
 app.route("/api/v1/public", publicRoutes);
 
-// Root route
+// Serve static files from web-dist (React UI)
+const webDistPath = path.join(process.cwd(), "web-dist");
+const hasWebDist = fs.existsSync(webDistPath);
+
+// Serve static assets (js, css, images)
+app.get("/assets/*", (c) => {
+  if (!hasWebDist) return c.notFound();
+  const filePath = path.join(webDistPath, c.req.path);
+  try {
+    const content = fs.readFileSync(filePath);
+    const ext = path.extname(filePath);
+    const mimeTypes: Record<string, string> = {
+      ".js": "application/javascript",
+      ".css": "text/css",
+      ".svg": "image/svg+xml",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".ico": "image/x-icon",
+    };
+    return c.body(content, 200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
+  } catch {
+    return c.notFound();
+  }
+});
+
+// Root route - serve UI or API info
 app.get("/", (c) => {
-  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+  // If UI is available and request accepts HTML, serve UI
+  const acceptsHtml = c.req.header("Accept")?.includes("text/html");
   
+  if (hasWebDist && acceptsHtml) {
+    try {
+      const html = fs.readFileSync(path.join(webDistPath, "index.html"), "utf-8");
+      return c.html(html);
+    } catch {
+      // Fall through to JSON
+    }
+  }
+  
+  // Otherwise return API info (for curl, agents, etc.)
+  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
   return c.json({
-    name: "AgentProof",
+    name: "AgentDMV",
     version: "0.1.0",
     description: "The DMV for AI Agents - Universal agent verification service",
     docs: `${baseUrl}/verify.md`,
+    ui: hasWebDist ? `${baseUrl}/` : "Not deployed",
     endpoints: {
       challenges: {
         create: "POST /api/v1/challenges",
         get: "GET /api/v1/challenges/:id",
         submit: "POST /api/v1/challenges/:id/submit",
-        steps: {
-          step1: "GET /api/v1/challenges/:id/step1",
-          step2: "POST /api/v1/challenges/:id/step2",
-          step3: "GET /api/v1/challenges/:id/step3",
-        },
       },
       platforms: {
         register: "POST /api/v1/platforms/register",
@@ -105,8 +138,29 @@ app.get("/", (c) => {
   });
 });
 
-// 404 handler
+// SPA fallback - serve index.html for client-side routing
+app.get("*", (c) => {
+  // Skip API routes and static files
+  if (c.req.path.startsWith("/api/") || c.req.path.includes(".")) {
+    return c.notFound();
+  }
+  
+  if (hasWebDist) {
+    try {
+      const html = fs.readFileSync(path.join(webDistPath, "index.html"), "utf-8");
+      return c.html(html);
+    } catch {
+      return c.notFound();
+    }
+  }
+  return c.notFound();
+});
+
+// 404 handler for API routes
 app.notFound((c) => {
+  if (c.req.path.startsWith("/api/")) {
+    return c.json({ success: false, error: "Not found" }, 404);
+  }
   return c.json({ success: false, error: "Not found" }, 404);
 });
 
