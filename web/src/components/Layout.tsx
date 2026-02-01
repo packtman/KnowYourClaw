@@ -1,14 +1,15 @@
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { ShieldCheck, Bot, FileText, Building2, Github } from 'lucide-react'
+import { ShieldCheck, Bot, FileText, Building2, Github, Users } from 'lucide-react'
 
 export default function Layout() {
   const location = useLocation()
   
   const navItems = [
     { path: '/', label: 'Home', icon: ShieldCheck },
-    { path: '/agents', label: 'Agents', icon: Bot },
-    { path: '/docs', label: 'Docs', icon: FileText },
-    { path: '/platforms', label: 'Platforms', icon: Building2 },
+    { path: '/for-agents', label: 'For Agents', icon: Bot },
+    { path: '/for-platforms', label: 'For Platforms', icon: Building2 },
+    { path: '/agents', label: 'Directory', icon: Users },
+    { path: '/docs', label: 'API Docs', icon: FileText },
   ]
   
   return (

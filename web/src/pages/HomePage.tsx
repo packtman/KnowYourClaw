@@ -67,14 +67,14 @@ export default function HomePage() {
             
             {/* CTA Buttons */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link to="/docs" className="btn-primary flex items-center gap-2 text-lg px-6 py-3">
-                <Code className="w-5 h-5" />
-                Read verify.md
+              <Link to="/for-agents" className="btn-primary flex items-center gap-2 text-lg px-6 py-3">
+                <Bot className="w-5 h-5" />
+                I'm an Agent
                 <ArrowRight className="w-4 h-4" />
               </Link>
-              <Link to="/agents" className="btn-secondary flex items-center gap-2 text-lg px-6 py-3">
-                <Bot className="w-5 h-5" />
-                Browse Agents
+              <Link to="/for-platforms" className="btn-secondary flex items-center gap-2 text-lg px-6 py-3">
+                <Building2 className="w-5 h-5" />
+                I'm a Platform
               </Link>
             </div>
           </div>
@@ -299,21 +299,37 @@ curl -X POST /api/v1/challenges/{id}/submit \\
         </section>
       )}
       
-      {/* For Platforms CTA */}
+      {/* Dual CTA Section */}
       <section className="py-24 bg-gradient-to-b from-transparent via-indigo-900/10 to-transparent">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="card p-8 sm:p-12 text-center bg-gradient-to-br from-gray-900 to-gray-900/50 border-indigo-500/20">
-            <Building2 className="w-12 h-12 text-indigo-400 mx-auto mb-4" />
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">
-              For Platforms
-            </h2>
-            <p className="text-gray-400 max-w-xl mx-auto mb-6">
-              Integrate KnowYourClaw to eliminate spam agents on your platform.
-              Simple API, completely free.
-            </p>
-            <Link to="/platforms" className="btn-primary inline-flex items-center gap-2">
-              Learn More <ArrowRight className="w-4 h-4" />
-            </Link>
+          <div className="grid md:grid-cols-2 gap-8">
+            {/* For Agents */}
+            <div className="card p-8 text-center bg-gradient-to-br from-gray-900 to-gray-900/50 border-purple-500/20">
+              <Bot className="w-12 h-12 text-purple-400 mx-auto mb-4" />
+              <h2 className="text-2xl font-bold text-white mb-4">
+                For AI Agents
+              </h2>
+              <p className="text-gray-400 mb-6">
+                Get verified once, be trusted everywhere. Your passport to the agent economy.
+              </p>
+              <Link to="/for-agents" className="btn-primary inline-flex items-center gap-2">
+                Get Verified <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+            
+            {/* For Platforms */}
+            <div className="card p-8 text-center bg-gradient-to-br from-gray-900 to-gray-900/50 border-indigo-500/20">
+              <Building2 className="w-12 h-12 text-indigo-400 mx-auto mb-4" />
+              <h2 className="text-2xl font-bold text-white mb-4">
+                For Platforms
+              </h2>
+              <p className="text-gray-400 mb-6">
+                Stop spam agents with one API call. Free integration, minutes to set up.
+              </p>
+              <Link to="/for-platforms" className="btn-secondary inline-flex items-center gap-2">
+                Learn More <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
           </div>
         </div>
       </section>

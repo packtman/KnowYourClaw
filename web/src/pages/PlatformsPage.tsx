@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { 
-  Building2, Shield, Zap, Code, CheckCircle2, 
-  Copy, Check, ArrowRight, Terminal
+  Building2, Shield, Zap, Code,
+  ArrowRight, Terminal, Mail, RefreshCw
 } from 'lucide-react'
 
 export default function PlatformsPage() {
@@ -12,12 +12,13 @@ export default function PlatformsPage() {
   })
   const [result, setResult] = useState<{
     success: boolean
-    api_key?: string
-    platform?: { id: string; name: string }
+    message?: string
+    platform?: { id: string; name: string; status: string }
     error?: string
+    next_steps?: string[]
   } | null>(null)
   const [loading, setLoading] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [resending, setResending] = useState(false)
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,7 +32,7 @@ export default function PlatformsPage() {
         body: JSON.stringify({
           name: formData.name,
           domain: formData.domain || undefined,
-          contact_email: formData.email || undefined
+          contact_email: formData.email
         })
       })
       const data = await res.json()
@@ -43,11 +44,24 @@ export default function PlatformsPage() {
     }
   }
   
-  const copyApiKey = () => {
-    if (result?.api_key) {
-      navigator.clipboard.writeText(result.api_key)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+  const handleResendVerification = async () => {
+    setResending(true)
+    try {
+      const res = await fetch('/api/v1/platforms/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email })
+      })
+      const data = await res.json()
+      if (data.success) {
+        alert('Verification email resent! Check your inbox.')
+      } else {
+        alert(data.error || 'Failed to resend email')
+      }
+    } catch {
+      alert('Failed to resend verification email')
+    } finally {
+      setResending(false)
     }
   }
   
@@ -169,42 +183,43 @@ export default function PlatformsPage() {
           {result?.success ? (
             <div className="space-y-6">
               <div className="flex items-center gap-3 text-green-400">
-                <CheckCircle2 className="w-6 h-6" />
-                <span className="text-lg font-medium">Platform Registered!</span>
+                <Mail className="w-6 h-6" />
+                <span className="text-lg font-medium">Check Your Email!</span>
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-2">
-                  Your API Key
-                </label>
-                <div className="flex gap-2">
-                  <code className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-4 py-3 text-sm text-indigo-300 font-mono break-all">
-                    {result.api_key}
-                  </code>
-                  <button
-                    onClick={copyApiKey}
-                    className="btn-secondary px-3"
-                  >
-                    {copied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5" />}
-                  </button>
-                </div>
+              <p className="text-gray-300">
+                We've sent a verification email to <strong className="text-white">{formData.email}</strong>
+              </p>
+              
+              <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+                <h4 className="font-medium text-white mb-2">Next Steps:</h4>
+                <ol className="text-sm text-gray-400 space-y-1">
+                  {result.next_steps?.map((step, i) => (
+                    <li key={i}>{step}</li>
+                  ))}
+                </ol>
               </div>
               
-              <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-                <p className="text-yellow-400 text-sm">
-                  <strong>Important:</strong> Save your API key now. It won't be shown again!
-                </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleResendVerification}
+                  disabled={resending}
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  <RefreshCw className={`w-4 h-4 ${resending ? 'animate-spin' : ''}`} />
+                  {resending ? 'Sending...' : 'Resend Email'}
+                </button>
+                
+                <button
+                  onClick={() => {
+                    setResult(null)
+                    setFormData({ name: '', domain: '', email: '' })
+                  }}
+                  className="btn-secondary"
+                >
+                  Register Another
+                </button>
               </div>
-              
-              <button
-                onClick={() => {
-                  setResult(null)
-                  setFormData({ name: '', domain: '', email: '' })
-                }}
-                className="btn-secondary"
-              >
-                Register Another Platform
-              </button>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -224,26 +239,30 @@ export default function PlatformsPage() {
               
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Domain
+                  Email Address *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="admin@yourplatform.com"
+                  className="input w-full"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  We'll send your API key to this email after verification
+                </p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Domain <span className="text-gray-500">(optional)</span>
                 </label>
                 <input
                   type="text"
                   value={formData.domain}
                   onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
                   placeholder="e.g., moltbook.com"
-                  className="input w-full"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Contact Email
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="admin@yourplatform.com"
                   className="input w-full"
                 />
               </div>
@@ -263,7 +282,7 @@ export default function PlatformsPage() {
                   'Registering...'
                 ) : (
                   <>
-                    Get API Key
+                    Register & Get API Key
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
