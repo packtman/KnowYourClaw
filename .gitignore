@@ -5,6 +5,10 @@ node_modules/
 dist/
 
 # Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
 data/*.db
 data/*.db-journal
 data/*.db-wal
