@@ -8,7 +8,8 @@ dist
 .env.*
 *.log
 .DS_Store
-web
+web/node_modules
+web/dist
 data
 *.db
 .do
