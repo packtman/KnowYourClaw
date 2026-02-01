@@ -2,6 +2,7 @@
  * AgentProof Server Entry Point
  */
 
+import "dotenv/config";
 import { serve } from "@hono/node-server";
 import app from "./app.js";
 import { initializeDb } from "./db/index.js";

@@ -1,41 +1,74 @@
 /**
  * Platform Service
- * Handles platform registration and API key management
+ * Handles platform registration, email verification, and API key management
  */
 
 import { getDb, generateId } from "../db/index.js";
 import { generateApiKey, hashApiKey } from "../lib/crypto.js";
+import * as crypto from "crypto";
 
 export interface Platform {
   id: string;
   name: string;
   domain?: string;
-  contact_email?: string;
+  contact_email: string;
   tier: string;
   rate_limit: number;
   status: string;
+  email_verified_at?: string;
   verifications_count: number;
   verifications_this_month: number;
   created_at: string;
 }
 
+const EMAIL_VERIFICATION_EXPIRY_HOURS = 24;
+
+// Feature flag: set to "true" to require email verification for new platforms
+const REQUIRE_EMAIL_VERIFICATION = process.env.REQUIRE_EMAIL_VERIFICATION === "true";
+
+/**
+ * Generate a secure email verification token
+ */
+function generateVerificationToken(): string {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
 /**
  * Register a new platform
+ * If REQUIRE_EMAIL_VERIFICATION=true: requires email verification before getting API key
+ * If REQUIRE_EMAIL_VERIFICATION=false (default): returns API key immediately (old behavior)
  */
 export async function registerPlatform(
   name: string,
-  domain?: string,
-  contactEmail?: string
-): Promise<{ platform: Platform; apiKey: string }> {
+  contactEmail: string,
+  domain?: string
+): Promise<{ platform: Platform; verificationToken?: string; apiKey?: string }> {
   const db = getDb();
+
+  // Email is now required
+  if (!contactEmail || !contactEmail.includes("@")) {
+    throw new Error("Valid email address is required");
+  }
+
+  // Check if platform with same email exists
+  const existingEmail = db
+    .prepare("SELECT id, status FROM platforms WHERE contact_email = ?")
+    .get(contactEmail) as { id: string; status: string } | null;
+
+  if (existingEmail) {
+    if (existingEmail.status === "pending_email_verification") {
+      throw new Error("Email verification pending. Check your inbox or request a new verification email.");
+    }
+    throw new Error("A platform with this email already exists");
+  }
 
   // Check if platform with same domain exists
   if (domain) {
-    const existing = db
+    const existingDomain = db
       .prepare("SELECT id FROM platforms WHERE domain = ?")
       .get(domain) as { id: string } | null;
 
-    if (existing) {
+    if (existingDomain) {
       throw new Error("A platform with this domain already exists");
     }
   }
@@ -44,25 +77,163 @@ export async function registerPlatform(
   const apiKey = generateApiKey("plt");
   const apiKeyHash = await hashApiKey(apiKey);
 
-  db.prepare(
-    `INSERT INTO platforms (id, name, domain, contact_email, api_key_hash)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(platformId, name, domain, contactEmail, apiKeyHash);
+  if (REQUIRE_EMAIL_VERIFICATION) {
+    // New behavior: require email verification
+    const verificationToken = generateVerificationToken();
+    const verificationTokenHash = crypto.createHash("sha256").update(verificationToken).digest("hex");
+    const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+
+    db.prepare(
+      `INSERT INTO platforms (id, name, domain, contact_email, api_key_hash, status, email_verification_token, email_verification_expires_at)
+       VALUES (?, ?, ?, ?, ?, 'pending_email_verification', ?, ?)`
+    ).run(platformId, name, domain, contactEmail, apiKeyHash, verificationTokenHash, expiresAt);
+
+    const platform: Platform = {
+      id: platformId,
+      name,
+      domain,
+      contact_email: contactEmail,
+      tier: "free",
+      rate_limit: 100,
+      status: "pending_email_verification",
+      verifications_count: 0,
+      verifications_this_month: 0,
+      created_at: new Date().toISOString(),
+    };
+
+    // Return the raw token (will be sent via email), we only store the hash
+    return { platform, verificationToken };
+  } else {
+    // Old behavior: return API key immediately (no email verification)
+    db.prepare(
+      `INSERT INTO platforms (id, name, domain, contact_email, api_key_hash, status)
+       VALUES (?, ?, ?, ?, ?, 'active')`
+    ).run(platformId, name, domain, contactEmail, apiKeyHash);
+
+    const platform: Platform = {
+      id: platformId,
+      name,
+      domain,
+      contact_email: contactEmail,
+      tier: "free",
+      rate_limit: 100,
+      status: "active",
+      verifications_count: 0,
+      verifications_this_month: 0,
+      created_at: new Date().toISOString(),
+    };
+
+    return { platform, apiKey };
+  }
+}
+
+/**
+ * Verify platform email and activate the platform
+ */
+export async function verifyPlatformEmail(
+  token: string
+): Promise<{ platform: Platform; apiKey: string } | null> {
+  const db = getDb();
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+  // Find platform with this token
+  const row = db
+    .prepare(`
+      SELECT * FROM platforms 
+      WHERE email_verification_token = ? 
+        AND status = 'pending_email_verification'
+    `)
+    .get(tokenHash) as any;
+
+  if (!row) {
+    return null;
+  }
+
+  // Check if token expired
+  if (new Date(row.email_verification_expires_at) < new Date()) {
+    return null;
+  }
+
+  // Generate new API key (the original was never revealed)
+  const apiKey = generateApiKey("plt");
+  const apiKeyHash = await hashApiKey(apiKey);
+
+  // Activate the platform
+  db.prepare(`
+    UPDATE platforms 
+    SET status = 'active',
+        api_key_hash = ?,
+        email_verification_token = NULL,
+        email_verification_expires_at = NULL,
+        email_verified_at = datetime('now'),
+        updated_at = datetime('now')
+    WHERE id = ?
+  `).run(apiKeyHash, row.id);
 
   const platform: Platform = {
-    id: platformId,
-    name,
-    domain,
-    contact_email: contactEmail,
-    tier: "free",
-    rate_limit: 100,
+    id: row.id,
+    name: row.name,
+    domain: row.domain,
+    contact_email: row.contact_email,
+    tier: row.tier,
+    rate_limit: row.rate_limit,
     status: "active",
-    verifications_count: 0,
-    verifications_this_month: 0,
-    created_at: new Date().toISOString(),
+    email_verified_at: new Date().toISOString(),
+    verifications_count: row.verifications_count,
+    verifications_this_month: row.verifications_this_month,
+    created_at: row.created_at,
   };
 
   return { platform, apiKey };
+}
+
+/**
+ * Resend verification email (generates new token)
+ */
+export async function resendVerificationEmail(
+  email: string
+): Promise<{ platform: Platform; verificationToken: string } | null> {
+  const db = getDb();
+
+  const row = db
+    .prepare(`
+      SELECT * FROM platforms 
+      WHERE contact_email = ? 
+        AND status = 'pending_email_verification'
+    `)
+    .get(email) as any;
+
+  if (!row) {
+    return null;
+  }
+
+  // Generate new token
+  const verificationToken = generateVerificationToken();
+  const verificationTokenHash = crypto.createHash("sha256").update(verificationToken).digest("hex");
+  const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+
+  db.prepare(`
+    UPDATE platforms 
+    SET email_verification_token = ?,
+        email_verification_expires_at = ?,
+        updated_at = datetime('now')
+    WHERE id = ?
+  `).run(verificationTokenHash, expiresAt, row.id);
+
+  const platform: Platform = {
+    id: row.id,
+    name: row.name,
+    domain: row.domain,
+    contact_email: row.contact_email,
+    tier: row.tier,
+    rate_limit: row.rate_limit,
+    status: "pending_email_verification",
+    verifications_count: row.verifications_count,
+    verifications_this_month: row.verifications_this_month,
+    created_at: row.created_at,
+  };
+
+  return { platform, verificationToken };
 }
 
 /**
@@ -86,6 +257,7 @@ export async function validateApiKey(apiKey: string): Promise<Platform | null> {
     tier: row.tier,
     rate_limit: row.rate_limit,
     status: row.status,
+    email_verified_at: row.email_verified_at,
     verifications_count: row.verifications_count,
     verifications_this_month: row.verifications_this_month,
     created_at: row.created_at,
@@ -111,6 +283,7 @@ export function getPlatform(platformId: string): Platform | null {
     tier: row.tier,
     rate_limit: row.rate_limit,
     status: row.status,
+    email_verified_at: row.email_verified_at,
     verifications_count: row.verifications_count,
     verifications_this_month: row.verifications_this_month,
     created_at: row.created_at,

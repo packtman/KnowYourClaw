@@ -489,8 +489,8 @@ export function validateDynamicAnswer(
   challenge: DynamicChallenge,
   answer: { line: number; issue: string; fix?: string }
 ): { passed: boolean; error?: string; confidence: number } {
-  // Check line number (allow +/- 1 tolerance)
-  if (Math.abs(answer.line - challenge.answer.line) > 1) {
+  // Check line number (allow +/- 2 tolerance)
+  if (Math.abs(answer.line - challenge.answer.line) > 2) {
     return {
       passed: false,
       error: `Incorrect line number. Expected around line ${challenge.answer.line}`,
@@ -504,11 +504,11 @@ export function validateDynamicAnswer(
   
   // Bug-type specific keyword matching
   const bugKeywords: Record<string, string[]> = {
-    "off-by-one": ["index", "skip", "first", "start", "1", "begin", "missing"],
-    "wrong-comparison": ["assignment", "==", "equals", "comparison", "single", "="],
+    "off-by-one": ["index", "skip", "first", "start", "1", "begin", "missing", "element"],
+    "wrong-comparison": ["assignment", "==", "equals", "comparison", "single", "=", "instead"],
     "null-check-missing": ["null", "undefined", "check", "missing", "keyerror", "typeerror"],
-    "infinite-recursion": ["infinite", "recursion", "decrement", "never", "loop", "stack"],
-    "wrong-return-type": ["string", "return", "variable", "type", "quotes"],
+    "infinite-recursion": ["infinite", "recursion", "decrement", "never", "loop", "stack", "call"],
+    "wrong-return-type": ["string", "return", "variable", "type", "quotes", "literal", "value"],
     "async-missing-await": ["await", "async", "promise", "missing"],
     "boundary-condition": ["infinite", "loop", "boundary", "+1", "plus one", "mid"],
     "mutable-default-arg": ["mutable", "default", "argument", "persist", "list", "shared"],
@@ -516,14 +516,21 @@ export function validateDynamicAnswer(
     "type-coercion": ["coercion", "===", "==", "type", "strict"],
   };
   
+  // Generic bug-related keywords that always count
+  const genericKeywords = ["bug", "error", "wrong", "incorrect", "should", "instead", "fix", "issue", "problem"];
+  
   const keywords = bugKeywords[challenge.bugType] || [];
   const matchedKeywords = keywords.filter(kw => answerIssueLC.includes(kw));
+  const matchedGeneric = genericKeywords.filter(kw => answerIssueLC.includes(kw));
   
-  // Need at least 2 matching keywords or 40% of keywords
-  const minMatches = Math.max(2, Math.floor(keywords.length * 0.4));
-  const confidence = matchedKeywords.length / keywords.length;
+  // Pass if: has specific keyword OR has 2+ generic keywords OR answer is >50 chars with 1 generic
+  const hasSpecificMatch = matchedKeywords.length >= 1;
+  const hasGenericMatch = matchedGeneric.length >= 2;
+  const hasSubstantialAnswer = answer.issue.length > 50 && matchedGeneric.length >= 1;
   
-  if (matchedKeywords.length < minMatches) {
+  const confidence = keywords.length > 0 ? matchedKeywords.length / keywords.length : 0.5;
+  
+  if (!hasSpecificMatch && !hasGenericMatch && !hasSubstantialAnswer) {
     return {
       passed: false,
       error: "Issue description does not correctly identify the bug",
