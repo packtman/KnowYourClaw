@@ -99,7 +99,7 @@ app.get("/", (c) => {
       },
     },
     links: {
-      github: "https://github.com/yourusername/agentproof",
+      github: "https://github.com/packtman/Agentproof",
       docs: `${baseUrl}/verify.md`,
     },
   });
