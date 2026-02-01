@@ -28,25 +28,6 @@ app.get("/health", (c) => {
   return c.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// Private admin endpoint - requires ADMIN_SECRET header
-import { getDb } from "./db/index.js";
-
-app.get("/api/v1/admin/platforms", (c) => {
-  const secret = c.req.header("X-Admin-Secret");
-  const adminSecret = process.env.ADMIN_SECRET;
-  
-  if (!adminSecret || secret !== adminSecret) {
-    return c.json({ success: false, error: "Unauthorized" }, 401);
-  }
-  
-  const db = getDb();
-  const platforms = db.prepare(
-    "SELECT id, name, domain, contact_email, status, created_at FROM platforms"
-  ).all();
-  
-  return c.json({ success: true, platforms });
-});
-
 // Serve markdown files
 app.get("/verify.md", (c) => {
   try {
