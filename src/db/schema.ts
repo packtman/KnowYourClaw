@@ -161,6 +161,16 @@ CREATE TABLE IF NOT EXISTS speed_tokens (
   FOREIGN KEY (challenge_id) REFERENCES challenges(id)
 );
 
+-- OAuth states (for CSRF protection and PKCE)
+CREATE TABLE IF NOT EXISTS oauth_states (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL CHECK(provider IN ('twitter', 'github')),
+  claim_token TEXT NOT NULL,
+  code_verifier TEXT, -- For Twitter PKCE
+  created_at TEXT DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_challenges_status ON challenges(status);
 CREATE INDEX IF NOT EXISTS idx_challenges_expires_at ON challenges(expires_at);
@@ -174,6 +184,8 @@ CREATE INDEX IF NOT EXISTS idx_rate_limit_fingerprint ON rate_limit_log(fingerpr
 CREATE INDEX IF NOT EXISTS idx_rate_limit_created ON rate_limit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_timing_ip ON timing_log(ip);
 CREATE INDEX IF NOT EXISTS idx_timing_fingerprint ON timing_log(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_oauth_states_claim_token ON oauth_states(claim_token);
+CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
 `;
 
 export default schema;

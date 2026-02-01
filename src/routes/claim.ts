@@ -1,17 +1,66 @@
 /**
- * Claim Routes
- * GET /api/v1/claim/:token - Get claim info for an agent
- * POST /api/v1/claim/:token - Complete claim with OAuth data
+ * Claim Routes - Tweet-based human-in-the-loop verification
  * 
- * Human-in-the-loop verification:
- * This is the strongest check - even if somehow a human passed the agent tests,
- * they still need to link their X/Twitter or GitHub account to claim the agent.
+ * Flow:
+ * 1. User visits claim page with their claim token
+ * 2. We show them a verification code to tweet
+ * 3. User posts tweet with the code
+ * 4. User pastes the tweet URL back
+ * 5. We verify and link their X account to the agent
+ * 
+ * This approach doesn't require OAuth setup - just public tweet verification.
  */
 
 import { Hono } from "hono";
 import { getDb } from "../db/index.js";
+import * as crypto from "crypto";
 
 const claim = new Hono();
+
+// Helper to generate random verification code
+function generateVerificationCode(): string {
+  return crypto.randomBytes(4).toString("hex").toUpperCase(); // 8 char hex code
+}
+
+// Get base URL from env
+function getBaseUrl(): string {
+  return process.env.BASE_URL || "https://agentdmv.com";
+}
+
+// Extract Twitter username from tweet URL
+function extractTwitterUsername(url: string): string | null {
+  // Match both twitter.com and x.com URLs
+  // https://twitter.com/username/status/123456
+  // https://x.com/username/status/123456
+  const patterns = [
+    /https?:\/\/(www\.)?(twitter\.com|x\.com)\/([a-zA-Z0-9_]+)\/status\/(\d+)/,
+    /https?:\/\/(www\.)?(twitter\.com|x\.com)\/([a-zA-Z0-9_]+)\/statuses\/(\d+)/,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) {
+      return match[3]; // username is in group 3
+    }
+  }
+  return null;
+}
+
+// Extract tweet ID from URL
+function extractTweetId(url: string): string | null {
+  const patterns = [
+    /https?:\/\/(www\.)?(twitter\.com|x\.com)\/[a-zA-Z0-9_]+\/status\/(\d+)/,
+    /https?:\/\/(www\.)?(twitter\.com|x\.com)\/[a-zA-Z0-9_]+\/statuses\/(\d+)/,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) {
+      return match[3]; // tweet ID is in group 3
+    }
+  }
+  return null;
+}
 
 interface AgentRow {
   id: string;
@@ -38,19 +87,34 @@ interface OwnerRow {
   avatar_url: string | null;
 }
 
+interface ClaimVerificationRow {
+  id: string;
+  claim_token: string;
+  verification_code: string;
+  created_at: string;
+  expires_at: string;
+}
+
 /**
  * GET /api/v1/claim/:token
  * Get claim information for an agent (used by ClaimPage)
+ * Returns verification code for tweeting
  */
 claim.get("/:token", async (c) => {
   const claimToken = c.req.param("token");
-  const db = getDb();
   
+  // Don't match auth routes (legacy, keeping for safety)
+  if (claimToken === "auth") {
+    return c.notFound();
+  }
+  
+  const db = getDb();
+
   // Find agent by claim token
   const agent = db.prepare(
     "SELECT * FROM agents WHERE claim_token = ?"
   ).get(claimToken) as AgentRow | undefined;
-  
+
   if (!agent) {
     return c.json({
       success: false,
@@ -58,7 +122,7 @@ claim.get("/:token", async (c) => {
       hint: "This link may have already been used or expired. Claim links are valid for 7 days after verification.",
     }, 404);
   }
-  
+
   // Check if claim has expired
   if (agent.claim_expires_at && new Date(agent.claim_expires_at) < new Date()) {
     return c.json({
@@ -67,7 +131,7 @@ claim.get("/:token", async (c) => {
       hint: "The agent can request a new claim link by re-verifying.",
     }, 410);
   }
-  
+
   // Check if already claimed
   let owner: OwnerRow | undefined;
   if (agent.owner_id) {
@@ -75,7 +139,36 @@ claim.get("/:token", async (c) => {
       "SELECT * FROM owners WHERE id = ?"
     ).get(agent.owner_id) as OwnerRow | undefined;
   }
-  
+
+  // Generate or retrieve verification code for this claim
+  let verification = db.prepare(
+    "SELECT * FROM oauth_states WHERE claim_token = ? AND expires_at > datetime('now')"
+  ).get(claimToken) as ClaimVerificationRow | undefined;
+
+  if (!verification) {
+    // Create new verification code
+    const code = generateVerificationCode();
+    const id = crypto.randomBytes(16).toString("hex");
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+
+    db.prepare(
+      `INSERT INTO oauth_states (id, provider, claim_token, code_verifier, expires_at)
+       VALUES (?, 'twitter', ?, ?, ?)`
+    ).run(id, claimToken, code, expiresAt);
+
+    verification = {
+      id,
+      claim_token: claimToken,
+      verification_code: code,
+      created_at: new Date().toISOString(),
+      expires_at: expiresAt,
+    };
+  }
+
+  // Build the tweet text
+  const tweetText = `I'm claiming "${agent.name}" on @AgentDMV 🪪\n\nVerify: ${verification.verification_code || (verification as any).code_verifier}\n\n${getBaseUrl()}/a/${encodeURIComponent(agent.name)}`;
+  const tweetIntentUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
+
   return c.json({
     success: true,
     agent: {
@@ -95,87 +188,154 @@ claim.get("/:token", async (c) => {
       handle: owner.handle,
       display_name: owner.display_name,
     } : undefined,
+    // Tweet verification data
+    verification: !agent.owner_id ? {
+      code: verification.verification_code || (verification as any).code_verifier,
+      tweet_text: tweetText,
+      tweet_intent_url: tweetIntentUrl,
+      expires_at: verification.expires_at,
+    } : undefined,
   });
 });
 
 /**
  * POST /api/v1/claim/:token
- * Complete the claim process with OAuth verification
- * 
- * TEMPORARILY DISABLED - OAuth integration not yet implemented.
- * Enabling this without real OAuth would allow anyone to claim any agent
- * by posting fake OAuth data.
+ * Complete the claim by submitting tweet URL
  */
 claim.post("/:token", async (c) => {
-  return c.json({
-    success: false,
-    error: "Claiming is temporarily disabled",
-    message: "OAuth integration (Twitter/GitHub) coming soon. Your agent is already verified - claiming will be available shortly to link your human owner.",
-    status: "Your proof token is valid and can be used on any platform that supports AgentDMV.",
-  }, 503);
-});
+  const claimToken = c.req.param("token");
+  const db = getDb();
 
-/**
- * OAuth callback stubs
- * In production, these would handle the OAuth flow with Twitter/GitHub
- * For now, they provide instructions on how to set up OAuth
- */
-claim.get("/auth/twitter", async (c) => {
-  const claimToken = c.req.query("claim_token");
-  
-  // Check if Twitter OAuth is configured
-  if (!process.env.TWITTER_CLIENT_ID || !process.env.TWITTER_CLIENT_SECRET) {
+  try {
+    const body = await c.req.json();
+    const { tweet_url } = body;
+
+    if (!tweet_url) {
+      return c.json({
+        success: false,
+        error: "Missing tweet_url",
+        hint: "Please provide the URL of your verification tweet",
+      }, 400);
+    }
+
+    // Extract username from tweet URL
+    const username = extractTwitterUsername(tweet_url);
+    const tweetId = extractTweetId(tweet_url);
+
+    if (!username || !tweetId) {
+      return c.json({
+        success: false,
+        error: "Invalid tweet URL",
+        hint: "Please provide a valid X/Twitter tweet URL (e.g., https://x.com/username/status/123456)",
+      }, 400);
+    }
+
+    // Find agent by claim token
+    const agent = db.prepare(
+      "SELECT * FROM agents WHERE claim_token = ?"
+    ).get(claimToken) as AgentRow | undefined;
+
+    if (!agent) {
+      return c.json({
+        success: false,
+        error: "Invalid or expired claim token",
+      }, 404);
+    }
+
+    // Check expiry
+    if (agent.claim_expires_at && new Date(agent.claim_expires_at) < new Date()) {
+      return c.json({
+        success: false,
+        error: "Claim link has expired",
+      }, 410);
+    }
+
+    // Check if already claimed
+    if (agent.owner_id) {
+      return c.json({
+        success: false,
+        error: "Agent has already been claimed",
+      }, 400);
+    }
+
+    // Verify we have a verification code for this claim
+    const verification = db.prepare(
+      "SELECT * FROM oauth_states WHERE claim_token = ? AND expires_at > datetime('now')"
+    ).get(claimToken) as ClaimVerificationRow | undefined;
+
+    if (!verification) {
+      return c.json({
+        success: false,
+        error: "Verification code expired",
+        hint: "Please refresh the page to get a new verification code",
+      }, 400);
+    }
+
+    // Check if this Twitter account already claimed another agent
+    const existingOwner = db.prepare(
+      "SELECT * FROM owners WHERE provider = 'twitter' AND handle = ?"
+    ).get(username.toLowerCase()) as OwnerRow | undefined;
+
+    if (existingOwner) {
+      const existingAgent = db.prepare(
+        "SELECT name FROM agents WHERE owner_id = ?"
+      ).get(existingOwner.id) as { name: string } | undefined;
+
+      if (existingAgent) {
+        return c.json({
+          success: false,
+          error: `@${username} has already claimed agent "${existingAgent.name}"`,
+          hint: "Each X/Twitter account can only claim one agent.",
+        }, 400);
+      }
+    }
+
+    // Create or update owner record
+    let ownerId: string;
+    if (existingOwner) {
+      ownerId = existingOwner.id;
+      db.prepare(
+        `UPDATE owners SET updated_at = datetime('now') WHERE id = ?`
+      ).run(ownerId);
+    } else {
+      ownerId = `own_${Date.now().toString(36)}${crypto.randomBytes(3).toString("hex")}`;
+      db.prepare(
+        `INSERT INTO owners (id, provider, provider_id, handle, display_name, avatar_url)
+         VALUES (?, 'twitter', ?, ?, NULL, NULL)`
+      ).run(ownerId, tweetId, username.toLowerCase()); // Using tweet ID as provider_id for uniqueness
+    }
+
+    // Update agent with owner and clear claim token
+    db.prepare(
+      `UPDATE agents SET owner_id = ?, claim_token = NULL, updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(ownerId, agent.id);
+
+    // Clean up verification code
+    db.prepare("DELETE FROM oauth_states WHERE claim_token = ?").run(claimToken);
+
+    return c.json({
+      success: true,
+      message: "Agent claimed successfully!",
+      agent: {
+        id: agent.id,
+        name: agent.name,
+      },
+      owner: {
+        provider: "twitter",
+        handle: username,
+      },
+      profile_url: `${getBaseUrl()}/a/${encodeURIComponent(agent.name)}`,
+      tweet_url: tweet_url,
+    });
+
+  } catch (error) {
+    console.error("Claim error:", error);
     return c.json({
       success: false,
-      error: "Twitter OAuth not configured",
-      setup: {
-        instructions: "To enable Twitter/X authentication:",
-        steps: [
-          "1. Create a Twitter Developer App at developer.twitter.com",
-          "2. Enable OAuth 2.0 with PKCE",
-          "3. Set callback URL to: ${BASE_URL}/api/v1/claim/auth/twitter/callback",
-          "4. Add TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET to .env",
-        ],
-        claim_token: claimToken,
-      },
-    }, 501);
+      error: "Failed to process claim",
+    }, 500);
   }
-  
-  // TODO: Implement actual Twitter OAuth flow
-  // This would redirect to Twitter's authorization URL
-  return c.json({
-    success: false,
-    error: "Twitter OAuth flow not yet implemented",
-    claim_token: claimToken,
-  }, 501);
-});
-
-claim.get("/auth/github", async (c) => {
-  const claimToken = c.req.query("claim_token");
-  
-  // Check if GitHub OAuth is configured
-  if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
-    return c.json({
-      success: false,
-      error: "GitHub OAuth not configured",
-      setup: {
-        instructions: "To enable GitHub authentication:",
-        steps: [
-          "1. Create a GitHub OAuth App at github.com/settings/developers",
-          "2. Set callback URL to: ${BASE_URL}/api/v1/claim/auth/github/callback",
-          "3. Add GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET to .env",
-        ],
-        claim_token: claimToken,
-      },
-    }, 501);
-  }
-  
-  // TODO: Implement actual GitHub OAuth flow
-  return c.json({
-    success: false,
-    error: "GitHub OAuth flow not yet implemented",
-    claim_token: claimToken,
-  }, 501);
 });
 
 export default claim;
