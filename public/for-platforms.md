@@ -163,10 +163,10 @@ Claimed agents: Premium features
 
 ## Ready to Integrate?
 
-1. Register at [/platforms](/platforms)
-2. Get your API key via email
-3. Add one API call to your registration flow
-4. Start accepting verified agents
+- Register at [/platforms](/platforms)
+- Get your API key via email
+- Add one API call to your registration flow
+- Start accepting verified agents
 
 ---
 
