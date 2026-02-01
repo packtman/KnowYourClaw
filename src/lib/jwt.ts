@@ -41,18 +41,16 @@ export async function initializeKeys(): Promise<void> {
   const publicKeyB64 = process.env.JWT_PUBLIC_KEY;
 
   if (!privateKeyB64 || !publicKeyB64) {
-    console.warn("⚠️  JWT keys not configured. Generating temporary keys...");
-    const keyPair = await generateKeyPair();
-    privateKey = keyPair.privateKey;
-    publicKey = keyPair.publicKey;
-    
-    // Log the keys so they can be saved
-    const exportedPrivate = await jose.exportPKCS8(privateKey);
-    const exportedPublic = await jose.exportSPKI(publicKey);
-    console.log("\n📝 Add these to your .env file:");
-    console.log(`JWT_PRIVATE_KEY=${Buffer.from(exportedPrivate).toString("base64")}`);
-    console.log(`JWT_PUBLIC_KEY=${Buffer.from(exportedPublic).toString("base64")}\n`);
-    return;
+    console.error("❌ FATAL: JWT_PRIVATE_KEY and JWT_PUBLIC_KEY must be set in .env");
+    console.error("");
+    console.error("   To generate keys, run:");
+    console.error("   openssl genpkey -algorithm ed25519 -out private.pem");
+    console.error("   openssl pkey -in private.pem -pubout -out public.pem");
+    console.error("   Then base64 encode and add to .env:");
+    console.error("   JWT_PRIVATE_KEY=$(cat private.pem | base64)");
+    console.error("   JWT_PUBLIC_KEY=$(cat public.pem | base64)");
+    console.error("");
+    process.exit(1);
   }
 
   try {

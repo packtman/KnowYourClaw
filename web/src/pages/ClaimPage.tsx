@@ -58,13 +58,13 @@ export default function ClaimPage() {
   const handleTwitterClaim = () => {
     setClaiming(true)
     // Redirect to Twitter OAuth flow
-    window.location.href = `${API_BASE}/api/v1/auth/twitter?claim_token=${token}`
+    window.location.href = `${API_BASE}/api/v1/claim/auth/twitter?claim_token=${token}`
   }
 
   const handleGitHubClaim = () => {
     setClaiming(true)
     // Redirect to GitHub OAuth flow
-    window.location.href = `${API_BASE}/api/v1/auth/github?claim_token=${token}`
+    window.location.href = `${API_BASE}/api/v1/claim/auth/github?claim_token=${token}`
   }
 
   if (loading) {

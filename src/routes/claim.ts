@@ -101,103 +101,18 @@ claim.get("/:token", async (c) => {
 /**
  * POST /api/v1/claim/:token
  * Complete the claim process with OAuth verification
- * This is called after OAuth callback with verified user info
+ * 
+ * TEMPORARILY DISABLED - OAuth integration not yet implemented.
+ * Enabling this without real OAuth would allow anyone to claim any agent
+ * by posting fake OAuth data.
  */
 claim.post("/:token", async (c) => {
-  const claimToken = c.req.param("token");
-  const db = getDb();
-  
-  try {
-    const body = await c.req.json();
-    const { provider, provider_id, handle, display_name, avatar_url } = body;
-    
-    if (!provider || !provider_id || !handle) {
-      return c.json({
-        success: false,
-        error: "Missing required OAuth data",
-      }, 400);
-    }
-    
-    // Find agent by claim token
-    const agent = db.prepare(
-      "SELECT * FROM agents WHERE claim_token = ?"
-    ).get(claimToken) as AgentRow | undefined;
-    
-    if (!agent) {
-      return c.json({ success: false, error: "Invalid claim token" }, 404);
-    }
-    
-    // Check expiry
-    if (agent.claim_expires_at && new Date(agent.claim_expires_at) < new Date()) {
-      return c.json({ success: false, error: "Claim link expired" }, 410);
-    }
-    
-    // Check if already claimed
-    if (agent.owner_id) {
-      return c.json({ success: false, error: "Agent already claimed" }, 400);
-    }
-    
-    // Check if this social account already claimed another agent
-    const existingOwner = db.prepare(
-      "SELECT * FROM owners WHERE provider = ? AND provider_id = ?"
-    ).get(provider, provider_id) as OwnerRow | undefined;
-    
-    if (existingOwner) {
-      // Check if they already own a different agent
-      const existingAgent = db.prepare(
-        "SELECT name FROM agents WHERE owner_id = ?"
-      ).get(existingOwner.id) as { name: string } | undefined;
-      
-      if (existingAgent) {
-        return c.json({
-          success: false,
-          error: "This social account has already claimed an agent",
-          hint: `You already claimed agent "${existingAgent.name}". Each account can only claim one agent.`,
-        }, 400);
-      }
-    }
-    
-    // Create or get owner record
-    let ownerId: string;
-    if (existingOwner) {
-      ownerId = existingOwner.id;
-      // Update owner info
-      db.prepare(
-        `UPDATE owners SET handle = ?, display_name = ?, avatar_url = ?, updated_at = datetime('now')
-         WHERE id = ?`
-      ).run(handle, display_name, avatar_url, ownerId);
-    } else {
-      ownerId = `own_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-      db.prepare(
-        `INSERT INTO owners (id, provider, provider_id, handle, display_name, avatar_url)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(ownerId, provider, provider_id, handle, display_name, avatar_url);
-    }
-    
-    // Update agent with owner
-    db.prepare(
-      `UPDATE agents SET owner_id = ?, claim_token = NULL, updated_at = datetime('now')
-       WHERE id = ?`
-    ).run(ownerId, agent.id);
-    
-    return c.json({
-      success: true,
-      message: "Agent claimed successfully!",
-      agent: {
-        id: agent.id,
-        name: agent.name,
-      },
-      owner: {
-        provider,
-        handle,
-        display_name,
-      },
-      profile_url: `${process.env.BASE_URL || 'https://agentdmv.com'}/a/${encodeURIComponent(agent.name)}`,
-    });
-  } catch (error) {
-    console.error("Claim error:", error);
-    return c.json({ success: false, error: "Failed to process claim" }, 500);
-  }
+  return c.json({
+    success: false,
+    error: "Claiming is temporarily disabled",
+    message: "OAuth integration (Twitter/GitHub) coming soon. Your agent is already verified - claiming will be available shortly to link your human owner.",
+    status: "Your proof token is valid and can be used on any platform that supports AgentDMV.",
+  }, 503);
 });
 
 /**

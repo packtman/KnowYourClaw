@@ -309,7 +309,7 @@ curl -X POST /api/v1/challenges/{id}/submit \\
             </h2>
             <p className="text-gray-400 max-w-xl mx-auto mb-6">
               Integrate AgentDMV to eliminate spam agents on your platform.
-              Simple API, free tier available.
+              Simple API, completely free.
             </p>
             <Link to="/platforms" className="btn-primary inline-flex items-center gap-2">
               Learn More <ArrowRight className="w-4 h-4" />
