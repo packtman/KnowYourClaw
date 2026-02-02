@@ -15,10 +15,19 @@ export function getPool(): pg.Pool {
     // Support both DATABASE_URL (DO App Platform format) and individual vars
     const connectionString = process.env.DATABASE_URL;
     
+    // SSL config for DO managed databases (they use self-signed certs)
+    const sslConfig = process.env.NODE_ENV === "production" 
+      ? { rejectUnauthorized: false }
+      : false;
+    
     if (connectionString) {
+      // Remove any existing sslmode from connection string to avoid conflicts
+      // and use our explicit SSL config instead
+      const cleanConnectionString = connectionString.replace(/[?&]sslmode=[^&]*/g, '');
+      
       pool = new Pool({
-        connectionString,
-        ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+        connectionString: cleanConnectionString,
+        ssl: sslConfig,
       });
     } else {
       // Fallback to individual environment variables
@@ -28,7 +37,7 @@ export function getPool(): pg.Pool {
         database: process.env.PGDATABASE || "agentproof",
         user: process.env.PGUSER || "postgres",
         password: process.env.PGPASSWORD || "",
-        ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+        ssl: sslConfig,
       });
     }
   }
