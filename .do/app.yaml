@@ -17,6 +17,8 @@ services:
         value: production
       - key: PORT
         value: "3000"
+      - key: BASE_URL
+        value: "https://knowyourclaw.com"
       - key: DATABASE_URL
         scope: RUN_TIME
         value: ${db.DATABASE_URL}
