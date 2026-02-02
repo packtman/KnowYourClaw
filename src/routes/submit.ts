@@ -21,8 +21,6 @@ import {
   getExistingBios,
   storeBio,
   validateSpeedChallenge,
-  validateAndStoreCognitiveResponse,
-  validateAndStoreLLMOnlyResponse,
 } from "../services/challenge.service.js";
 import { createVerifiedAgent } from "../services/proof.service.js";
 import {
@@ -67,20 +65,6 @@ const generationResponseSchema = z.object({
   bio: z.string(),
 });
 
-const cognitiveResponseSchema = z.object({
-  type: z.literal("cognitive"),
-  answers: z.array(z.object({
-    questionId: z.string(),
-    answer: z.string(),
-  })),
-});
-
-const llmOnlyResponseSchema = z.object({
-  type: z.literal("llm_only"),
-  answer: z.string(),
-  reasoning: z.string().optional(),
-});
-
 const submitSchema = z.object({
   responses: z.array(
     z.union([
@@ -89,8 +73,6 @@ const submitSchema = z.object({
       speedResponseSchema,
       reasoningResponseSchema,
       generationResponseSchema,
-      cognitiveResponseSchema,
-      llmOnlyResponseSchema,
     ])
   ),
 });
@@ -158,13 +140,7 @@ submit.post("/:id/submit", async (c) => {
   );
 
   // Calculate time from challenge creation to submission
-  // Handle both ISO format (new) and SQLite datetime format (old)
-  let createdAtStr = challenge.created_at;
-  if (!createdAtStr.includes('T')) {
-    // Convert SQLite format "YYYY-MM-DD HH:MM:SS" to ISO by adding T and Z
-    createdAtStr = createdAtStr.replace(' ', 'T') + 'Z';
-  }
-  const challengeCreatedAt = new Date(createdAtStr).getTime();
+  const challengeCreatedAt = new Date(challenge.created_at).getTime();
   const totalTimeTakenMs = Date.now() - challengeCreatedAt;
 
   // Process each response
@@ -309,60 +285,6 @@ submit.post("/:id/submit", async (c) => {
         }
         break;
       }
-      
-      case "cognitive": {
-        // Validate cognitive proof-of-work (~$0.05-$0.10 token cost barrier)
-        if (!challenge.cognitive_challenge) {
-          results.push({
-            type: "cognitive",
-            passed: false,
-            error: "Cognitive challenge not found",
-          });
-          break;
-        }
-        
-        const cognitiveResult = validateAndStoreCognitiveResponse(
-          challengeId,
-          challenge.cognitive_challenge,
-          { answers: response.answers }
-        );
-        
-        results.push({
-          type: "cognitive",
-          passed: cognitiveResult.passed,
-          error: cognitiveResult.passed 
-            ? undefined 
-            : `Score ${cognitiveResult.score}/100 (70+ required). Issues: ${cognitiveResult.errors.slice(0, 3).join("; ")}`,
-        });
-        break;
-      }
-      
-      case "llm_only": {
-        // Validate LLM-only challenge (non-deterministic, unique per agent)
-        if (!challenge.llm_only_challenge) {
-          results.push({
-            type: "llm_only",
-            passed: false,
-            error: "LLM-only challenge not found",
-          });
-          break;
-        }
-        
-        const llmResult = validateAndStoreLLMOnlyResponse(
-          challengeId,
-          challenge.llm_only_challenge,
-          { answer: response.answer, reasoning: response.reasoning }
-        );
-        
-        results.push({
-          type: "llm_only",
-          passed: llmResult.passed,
-          error: llmResult.passed 
-            ? undefined 
-            : `Score ${llmResult.score}/100 (60+ required). Issues: ${llmResult.errors.slice(0, 3).join("; ")}`,
-        });
-        break;
-      }
     }
   }
 
@@ -384,35 +306,7 @@ submit.post("/:id/submit", async (c) => {
   const passed = results.filter((r) => r.passed);
   const failed = results.filter((r) => !r.passed);
 
-  // Require passing at least 4/6 tasks (configurable threshold)
-  // Crypto task is REQUIRED - others are flexible
-  const MIN_TASKS_TO_PASS = 4;
-  const cryptoResult = results.find(r => r.type === "crypto");
-  const cryptoPassed = cryptoResult?.passed === true;
-  
-  if (!cryptoPassed || !publicKey) {
-    // Crypto is mandatory - no verification without it
-    updateChallengeStatus(challengeId, "failed", undefined, timeTakenMs);
-    return c.json({
-      success: false,
-      status: "failed",
-      passed: false,
-      tasks_passed: passed.length,
-      tasks_failed: failed.length,
-      time_taken_ms: timeTakenMs,
-      results,
-      errors: [{ type: "crypto", error: "Cryptographic challenge is required" }],
-      retry_available: true,
-      message: "Cryptographic challenge must pass. Create a new challenge to retry.",
-      timing_assessment: {
-        is_likely_agent: assessment.isLikelyAgent,
-        confidence: assessment.confidence,
-        flags: assessment.flags,
-      },
-    });
-  }
-  
-  if (passed.length < MIN_TASKS_TO_PASS) {
+  if (failed.length > 0 || !publicKey) {
     updateChallengeStatus(challengeId, "failed", undefined, timeTakenMs);
 
     return c.json({
@@ -425,7 +319,8 @@ submit.post("/:id/submit", async (c) => {
       results,
       errors: failed.map((f) => ({ type: f.type, error: f.error })),
       retry_available: true,
-      message: `Passed ${passed.length}/${results.length} tasks. Need at least ${MIN_TASKS_TO_PASS} to verify.`,
+      message: "One or more tasks failed. You can create a new challenge to retry.",
+      // Include timing assessment (useful for debugging)
       timing_assessment: {
         is_likely_agent: assessment.isLikelyAgent,
         confidence: assessment.confidence,

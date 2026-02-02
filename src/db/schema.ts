@@ -81,10 +81,7 @@ CREATE TABLE IF NOT EXISTS platforms (
   api_key_hash TEXT NOT NULL UNIQUE,
   tier TEXT DEFAULT 'free' CHECK(tier IN ('free', 'platform', 'enterprise')),
   rate_limit INTEGER DEFAULT 100,
-  status TEXT DEFAULT 'active' CHECK(status IN ('pending_email_verification', 'active', 'suspended')),
-  email_verification_token TEXT,
-  email_verification_expires_at TEXT,
-  email_verified_at TEXT,
+  status TEXT DEFAULT 'active' CHECK(status IN ('active', 'suspended')),
   verifications_count INTEGER DEFAULT 0,
   verifications_this_month INTEGER DEFAULT 0,
   last_verification_at TEXT,
@@ -164,76 +161,6 @@ CREATE TABLE IF NOT EXISTS speed_tokens (
   FOREIGN KEY (challenge_id) REFERENCES challenges(id)
 );
 
--- Cognitive proof-of-work challenges (economic barrier ~$0.05-$0.10)
-CREATE TABLE IF NOT EXISTS cognitive_challenges (
-  id TEXT PRIMARY KEY,
-  challenge_id TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('multi_document', 'code_review', 'scenario_analysis', 'constraint_generation')),
-  documents TEXT NOT NULL, -- JSON array of documents
-  questions TEXT NOT NULL, -- JSON array of questions
-  verification TEXT NOT NULL, -- JSON verification rules
-  estimated_input_tokens INTEGER,
-  estimated_output_tokens INTEGER,
-  estimated_cost_usd REAL,
-  created_at TEXT DEFAULT (datetime('now')),
-  FOREIGN KEY (challenge_id) REFERENCES challenges(id)
-);
-
--- Cognitive challenge responses (for audit and analysis)
-CREATE TABLE IF NOT EXISTS cognitive_responses (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  challenge_id TEXT NOT NULL,
-  cognitive_challenge_id TEXT NOT NULL,
-  responses TEXT NOT NULL, -- JSON
-  score INTEGER,
-  passed INTEGER,
-  errors TEXT, -- JSON array
-  validation_details TEXT, -- JSON
-  created_at TEXT DEFAULT (datetime('now')),
-  FOREIGN KEY (challenge_id) REFERENCES challenges(id),
-  FOREIGN KEY (cognitive_challenge_id) REFERENCES cognitive_challenges(id)
-);
-
--- LLM-only challenges (non-deterministic, unique per agent)
-CREATE TABLE IF NOT EXISTS llm_only_challenges (
-  id TEXT PRIMARY KEY,
-  challenge_id TEXT NOT NULL,
-  type TEXT NOT NULL,
-  seed TEXT NOT NULL,
-  prompt TEXT NOT NULL,
-  context TEXT NOT NULL, -- JSON with generation parameters
-  verification TEXT NOT NULL, -- JSON verification rules
-  estimated_tokens INTEGER,
-  created_at TEXT DEFAULT (datetime('now')),
-  FOREIGN KEY (challenge_id) REFERENCES challenges(id)
-);
-
--- LLM-only challenge responses
-CREATE TABLE IF NOT EXISTS llm_only_responses (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  challenge_id TEXT NOT NULL,
-  llm_challenge_id TEXT NOT NULL,
-  answer TEXT NOT NULL,
-  reasoning TEXT,
-  score INTEGER,
-  passed INTEGER,
-  errors TEXT, -- JSON array
-  validation_details TEXT, -- JSON
-  created_at TEXT DEFAULT (datetime('now')),
-  FOREIGN KEY (challenge_id) REFERENCES challenges(id),
-  FOREIGN KEY (llm_challenge_id) REFERENCES llm_only_challenges(id)
-);
-
--- OAuth states (for CSRF protection and PKCE)
-CREATE TABLE IF NOT EXISTS oauth_states (
-  id TEXT PRIMARY KEY,
-  provider TEXT NOT NULL CHECK(provider IN ('twitter', 'github')),
-  claim_token TEXT NOT NULL,
-  code_verifier TEXT, -- For Twitter PKCE
-  created_at TEXT DEFAULT (datetime('now')),
-  expires_at TEXT NOT NULL
-);
-
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_challenges_status ON challenges(status);
 CREATE INDEX IF NOT EXISTS idx_challenges_expires_at ON challenges(expires_at);
@@ -247,8 +174,6 @@ CREATE INDEX IF NOT EXISTS idx_rate_limit_fingerprint ON rate_limit_log(fingerpr
 CREATE INDEX IF NOT EXISTS idx_rate_limit_created ON rate_limit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_timing_ip ON timing_log(ip);
 CREATE INDEX IF NOT EXISTS idx_timing_fingerprint ON timing_log(fingerprint);
-CREATE INDEX IF NOT EXISTS idx_oauth_states_claim_token ON oauth_states(claim_token);
-CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
 `;
 
 export default schema;

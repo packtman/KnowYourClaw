@@ -22,20 +22,6 @@ import {
   validateDynamicAnswer,
   type DynamicChallenge,
 } from "../lib/dynamic-challenges.js";
-import {
-  generateCognitiveChallenge,
-  validateCognitiveResponse,
-  formatChallengeForAgent,
-  type CognitiveChallenge,
-  type CognitiveResponse,
-} from "../lib/cognitive-challenges.js";
-import {
-  generateLLMOnlyChallenge,
-  validateLLMOnlyResponse,
-  formatLLMChallengePrompt,
-  type LLMOnlyChallenge,
-  type LLMChallengeResponse,
-} from "../lib/llm-only-challenges.js";
 
 // Challenge time limits by difficulty (in seconds)
 const TIME_LIMITS = {
@@ -46,7 +32,7 @@ const TIME_LIMITS = {
 
 // Types
 export interface ChallengeTask {
-  type: "crypto" | "tool_use" | "reasoning" | "generation" | "speed" | "cognitive" | "llm_only";
+  type: "crypto" | "tool_use" | "reasoning" | "generation" | "speed";
   prompt: string;
   nonce?: string;
   base_url?: string;
@@ -54,13 +40,6 @@ export interface ChallengeTask {
   language?: string;
   // Speed task specific
   endpoints?: string[];
-  // Cognitive task specific
-  cognitive_challenge_id?: string;
-  documents?: any[];
-  questions?: any[];
-  // LLM-only task specific
-  llm_challenge_id?: string;
-  llm_challenge_type?: string;
 }
 
 export interface Challenge {
@@ -76,8 +55,6 @@ export interface Challenge {
   time_limit_seconds: number;
   reasoning_challenge?: ReasoningChallenge;
   dynamic_challenge?: DynamicChallenge;
-  cognitive_challenge?: CognitiveChallenge;
-  llm_only_challenge?: LLMOnlyChallenge;
   // Metadata for anti-human detection
   ip_address?: string;
   fingerprint?: string;
@@ -93,11 +70,6 @@ export interface ChallengeResponse {
   issue?: string;
   fix?: string;
   bio?: string;
-  // Cognitive task specific
-  answers?: { questionId: string; answer: string }[];
-  // LLM-only task specific
-  answer?: string;
-  reasoning?: string;
 }
 
 /**
@@ -128,12 +100,6 @@ export function createChallenge(
   
   // Fallback to static challenge pool for validation compatibility
   const reasoningChallenge = getRandomChallenge(difficulty);
-  
-  // Generate COGNITIVE proof-of-work challenge (~$0.05-$0.10 in token cost)
-  const cognitiveChallenge = generateCognitiveChallenge();
-  
-  // Generate LLM-ONLY challenge (non-deterministic, unique per agent)
-  const llmOnlyChallenge = generateLLMOnlyChallenge();
 
   // Calculate expiry based on difficulty (30 seconds for standard)
   const timeLimit = TIME_LIMITS[difficulty];
@@ -200,33 +166,12 @@ Be specific about what makes YOU unique. Generic bios will be rejected.
 
 Return JSON: {"bio": "<your unique bio>"}`,
     },
-    {
-      type: "cognitive",
-      prompt: `COGNITIVE PROOF-OF-WORK: This task requires substantial reasoning and costs ~$${cognitiveChallenge.estimatedCostUsd.toFixed(2)} in token usage.
-
-${formatChallengeForAgent(cognitiveChallenge)}
-
-This economic barrier prevents bot farms from mass-creating fake agents.`,
-      cognitive_challenge_id: cognitiveChallenge.id,
-      documents: cognitiveChallenge.documents,
-      questions: cognitiveChallenge.questions,
-    },
-    {
-      type: "llm_only",
-      prompt: `LLM-ONLY CHALLENGE: This task is procedurally generated and unique to your verification.
-Only language models can solve it - scripts cannot.
-
-${formatLLMChallengePrompt(llmOnlyChallenge)}`,
-      llm_challenge_id: llmOnlyChallenge.id,
-      llm_challenge_type: llmOnlyChallenge.type,
-    },
   ];
 
   // Store challenge in database
-  const createdAt = new Date().toISOString();
   const stmt = db.prepare(
-    `INSERT INTO challenges (id, agent_name, agent_description, nonce, difficulty, tasks, status, expires_at, ip_address, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+    `INSERT INTO challenges (id, agent_name, agent_description, nonce, difficulty, tasks, status, expires_at, ip_address)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
   );
   stmt.run(
     challengeId,
@@ -238,13 +183,10 @@ ${formatLLMChallengePrompt(llmOnlyChallenge)}`,
       tasks, 
       dynamicChallengeId: dynamicChallenge.id,
       reasoningChallengeId: reasoningChallenge.id,
-      cognitiveChallengeId: cognitiveChallenge.id,
-      llmOnlyChallengeId: llmOnlyChallenge.id,
       timeLimit,
     }),
     expiresAt,
-    ipAddress,
-    createdAt
+    ipAddress
   );
 
   // Store tool-use challenge steps (keeping for backwards compat)
@@ -277,37 +219,6 @@ ${formatLLMChallengePrompt(llmOnlyChallenge)}`,
     dynamicChallenge.bugType,
     dynamicChallenge.difficulty
   );
-  
-  // Store cognitive challenge for validation (~$0.05-$0.10 proof-of-work)
-  db.prepare(
-    `INSERT INTO cognitive_challenges (id, challenge_id, type, documents, questions, verification, estimated_input_tokens, estimated_output_tokens, estimated_cost_usd)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    cognitiveChallenge.id,
-    challengeId,
-    cognitiveChallenge.type,
-    JSON.stringify(cognitiveChallenge.documents),
-    JSON.stringify(cognitiveChallenge.questions),
-    JSON.stringify(cognitiveChallenge.verification),
-    cognitiveChallenge.estimatedInputTokens,
-    cognitiveChallenge.estimatedOutputTokens,
-    cognitiveChallenge.estimatedCostUsd
-  );
-  
-  // Store LLM-only challenge (non-deterministic, unique per agent)
-  db.prepare(
-    `INSERT INTO llm_only_challenges (id, challenge_id, type, seed, prompt, context, verification, estimated_tokens)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    llmOnlyChallenge.id,
-    challengeId,
-    llmOnlyChallenge.type,
-    llmOnlyChallenge.seed,
-    llmOnlyChallenge.prompt,
-    llmOnlyChallenge.context,
-    JSON.stringify(llmOnlyChallenge.verification),
-    llmOnlyChallenge.estimatedTokens
-  );
 
   return {
     id: challengeId,
@@ -322,8 +233,6 @@ ${formatLLMChallengePrompt(llmOnlyChallenge)}`,
     time_limit_seconds: timeLimit,
     reasoning_challenge: reasoningChallenge,
     dynamic_challenge: dynamicChallenge,
-    cognitive_challenge: cognitiveChallenge,
-    llm_only_challenge: llmOnlyChallenge,
     ip_address: ipAddress,
     fingerprint,
   };
@@ -366,45 +275,6 @@ export function getChallenge(challengeId: string): Challenge | null {
       generatedAt: dynamicRow.created_at,
     };
   }
-  
-  // Get cognitive challenge if exists
-  const cognitiveRow = db.prepare(
-    "SELECT * FROM cognitive_challenges WHERE challenge_id = ?"
-  ).get(challengeId) as any;
-  
-  let cognitiveChallenge: CognitiveChallenge | undefined;
-  if (cognitiveRow) {
-    cognitiveChallenge = {
-      id: cognitiveRow.id,
-      type: cognitiveRow.type,
-      documents: JSON.parse(cognitiveRow.documents),
-      questions: JSON.parse(cognitiveRow.questions),
-      verification: JSON.parse(cognitiveRow.verification),
-      estimatedInputTokens: cognitiveRow.estimated_input_tokens,
-      estimatedOutputTokens: cognitiveRow.estimated_output_tokens,
-      estimatedCostUsd: cognitiveRow.estimated_cost_usd,
-      generatedAt: cognitiveRow.created_at,
-    };
-  }
-  
-  // Get LLM-only challenge if exists
-  const llmOnlyRow = db.prepare(
-    "SELECT * FROM llm_only_challenges WHERE challenge_id = ?"
-  ).get(challengeId) as any;
-  
-  let llmOnlyChallenge: LLMOnlyChallenge | undefined;
-  if (llmOnlyRow) {
-    llmOnlyChallenge = {
-      id: llmOnlyRow.id,
-      type: llmOnlyRow.type,
-      seed: llmOnlyRow.seed,
-      prompt: llmOnlyRow.prompt,
-      context: llmOnlyRow.context,
-      verification: JSON.parse(llmOnlyRow.verification),
-      estimatedTokens: llmOnlyRow.estimated_tokens,
-      generatedAt: llmOnlyRow.created_at,
-    };
-  }
 
   return {
     id: row.id,
@@ -419,8 +289,6 @@ export function getChallenge(challengeId: string): Challenge | null {
     time_limit_seconds: tasksData.timeLimit || 30,
     reasoning_challenge: reasoningChallenge,
     dynamic_challenge: dynamicChallenge,
-    cognitive_challenge: cognitiveChallenge,
-    llm_only_challenge: llmOnlyChallenge,
     ip_address: row.ip_address,
   };
 }
@@ -617,63 +485,4 @@ export function validateSpeedChallenge(
   return { passed: true, wasParallel: true };
 }
 
-/**
- * Validate and store cognitive challenge response
- */
-export function validateAndStoreCognitiveResponse(
-  challengeId: string,
-  cognitiveChallenge: CognitiveChallenge,
-  response: CognitiveResponse
-): { passed: boolean; score: number; errors: string[]; details: Record<string, any> } {
-  const db = getDb();
-  
-  const result = validateCognitiveResponse(cognitiveChallenge, response);
-  
-  // Store response for audit
-  db.prepare(
-    `INSERT INTO cognitive_responses (challenge_id, cognitive_challenge_id, responses, score, passed, errors, validation_details)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    challengeId,
-    cognitiveChallenge.id,
-    JSON.stringify(response),
-    result.score,
-    result.passed ? 1 : 0,
-    JSON.stringify(result.errors),
-    JSON.stringify(result.details)
-  );
-  
-  return result;
-}
-
-/**
- * Validate and store LLM-only challenge response
- */
-export function validateAndStoreLLMOnlyResponse(
-  challengeId: string,
-  llmOnlyChallenge: LLMOnlyChallenge,
-  response: LLMChallengeResponse
-): { passed: boolean; score: number; errors: string[]; details: Record<string, any> } {
-  const db = getDb();
-  
-  const result = validateLLMOnlyResponse(llmOnlyChallenge, response);
-  
-  // Store response for audit
-  db.prepare(
-    `INSERT INTO llm_only_responses (challenge_id, llm_challenge_id, answer, reasoning, score, passed, errors, validation_details)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    challengeId,
-    llmOnlyChallenge.id,
-    response.answer,
-    response.reasoning || null,
-    result.score,
-    result.passed ? 1 : 0,
-    JSON.stringify(result.errors),
-    JSON.stringify(result.details)
-  );
-  
-  return result;
-}
-
-export { validateReasoningAnswer, validateBio, checkBioUniqueness, validateDynamicAnswer, validateCognitiveResponse, validateLLMOnlyResponse };
+export { validateReasoningAnswer, validateBio, checkBioUniqueness, validateDynamicAnswer };

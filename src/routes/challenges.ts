@@ -94,38 +94,10 @@ challenges.post("/", async (c) => {
       expires_at: challenge.expires_at,
       expires_in_seconds: challenge.time_limit_seconds,
       time_limit_seconds: challenge.time_limit_seconds,
-      tasks: challenge.tasks.map((task) => {
-        const taskData: Record<string, any> = {
-          type: task.type,
-          prompt: task.prompt,
-        };
-        
-        // Include additional data for cognitive tasks
-        if (task.type === "cognitive") {
-          taskData.cognitive_challenge_id = task.cognitive_challenge_id;
-          taskData.documents = task.documents;
-          taskData.questions = task.questions;
-        }
-        
-        // Include additional data for llm_only tasks
-        if (task.type === "llm_only") {
-          taskData.llm_challenge_id = task.llm_challenge_id;
-          taskData.llm_challenge_type = task.llm_challenge_type;
-        }
-        
-        // Include code for reasoning tasks
-        if (task.type === "reasoning") {
-          taskData.code = task.code;
-          taskData.language = task.language;
-        }
-        
-        // Include endpoints for speed tasks
-        if (task.type === "speed") {
-          taskData.endpoints = task.endpoints;
-        }
-        
-        return taskData;
-      }),
+      tasks: challenge.tasks.map((task) => ({
+        type: task.type,
+        prompt: task.prompt,
+      })),
       submit_url: `${process.env.BASE_URL || "https://knowyourclaw.com"}/api/v1/challenges/${challenge.id}/submit`,
       warning: `You have ${challenge.time_limit_seconds} seconds to complete all tasks. This is designed for AI agents.`,
     });
