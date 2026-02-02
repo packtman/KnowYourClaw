@@ -21,6 +21,7 @@ import {
   getExistingBios,
   storeBio,
   validateSpeedChallenge,
+  getToolUseStep,
 } from "../services/challenge.service.js";
 import { createVerifiedAgent } from "../services/proof.service.js";
 import {
@@ -91,7 +92,7 @@ interface TaskResult {
  */
 submit.post("/:id/submit", async (c) => {
   const challengeId = c.req.param("id");
-  const challenge = getChallenge(challengeId);
+  const challenge = await getChallenge(challengeId);
 
   if (!challenge) {
     return c.json({ success: false, error: "Challenge not found" }, 404);
@@ -104,7 +105,7 @@ submit.post("/:id/submit", async (c) => {
 
   // Check if expired
   if (new Date(challenge.expires_at) < new Date()) {
-    updateChallengeStatus(challengeId, "expired");
+    await updateChallengeStatus(challengeId, "expired");
     return c.json({ 
       success: false, 
       error: "Challenge expired",
@@ -175,12 +176,10 @@ submit.post("/:id/submit", async (c) => {
 
       case "tool_use": {
         // Verify tool-use completion (legacy, keeping for backwards compat)
-        const toolResult = validateToolUseCompletion(challengeId);
+        const toolResult = await validateToolUseCompletion(challengeId);
         
         if (toolResult.passed) {
-          const step3 = await import("../services/challenge.service.js").then(
-            (m) => m.getToolUseStep(challengeId, 3)
-          );
+          const step3 = await getToolUseStep(challengeId, 3);
           
           if (step3 && step3.expectedValue === response.final_value) {
             results.push({ type: "tool_use", passed: true });
@@ -203,7 +202,7 @@ submit.post("/:id/submit", async (c) => {
       
       case "speed": {
         // Validate speed challenge - requires parallel fetching
-        const speedResult = validateSpeedChallenge(challengeId, response.combined);
+        const speedResult = await validateSpeedChallenge(challengeId, response.combined);
         speedWasParallel = speedResult.wasParallel;
         
         results.push({
@@ -270,7 +269,7 @@ submit.post("/:id/submit", async (c) => {
         }
 
         // Check uniqueness
-        const existingBios = getExistingBios();
+        const existingBios = await getExistingBios();
         const uniquenessResult = checkBioUniqueness(response.bio, existingBios);
 
         if (!uniquenessResult.unique) {
@@ -289,10 +288,10 @@ submit.post("/:id/submit", async (c) => {
   }
 
   // Record completion timing for future analysis
-  recordCompletionTiming(ip, fingerprint, totalTimeTakenMs);
+  await recordCompletionTiming(ip, fingerprint, totalTimeTakenMs);
   
   // Assess if this looks like an agent or human
-  const assessment = assessSubmission(
+  const assessment = await assessSubmission(
     totalTimeTakenMs,
     challenge.difficulty as "easy" | "standard" | "hard",
     ip,
@@ -307,7 +306,7 @@ submit.post("/:id/submit", async (c) => {
   const failed = results.filter((r) => !r.passed);
 
   if (failed.length > 0 || !publicKey) {
-    updateChallengeStatus(challengeId, "failed", undefined, timeTakenMs);
+    await updateChallengeStatus(challengeId, "failed", undefined, timeTakenMs);
 
     return c.json({
       success: false,
@@ -359,11 +358,11 @@ submit.post("/:id/submit", async (c) => {
 
     // Store bio
     if (bio) {
-      storeBio(agent.id, bio);
+      await storeBio(agent.id, bio);
     }
 
     // Update challenge status
-    updateChallengeStatus(challengeId, "completed", agent.id, timeTakenMs);
+    await updateChallengeStatus(challengeId, "completed", agent.id, timeTakenMs);
 
     const baseUrl = process.env.BASE_URL || "https://knowyourclaw.com";
 

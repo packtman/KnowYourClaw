@@ -3,7 +3,7 @@
  * Handles agent creation and proof token generation
  */
 
-import { getDb, generateId } from "../db/index.js";
+import { query, queryOne, execute, generateId } from "../db/index.js";
 import { signProofToken, type AgentProofPayload } from "../lib/jwt.js";
 import { generateToken } from "../lib/crypto.js";
 
@@ -48,12 +48,11 @@ export async function createVerifiedAgent(
   tasksPassed: string[],
   timeTakenMs: number
 ): Promise<{ agent: Agent; proof: Proof }> {
-  const db = getDb();
-  
   // Check if agent with this public key already exists
-  const existing = db
-    .prepare("SELECT id FROM agents WHERE public_key = ?")
-    .get(publicKey) as { id: string } | null;
+  const existing = await queryOne<{ id: string }>(
+    "SELECT id FROM agents WHERE public_key = $1",
+    [publicKey]
+  );
 
   if (existing) {
     throw new Error("An agent with this public key already exists");
@@ -65,20 +64,21 @@ export async function createVerifiedAgent(
   const claimExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
   const verifiedAt = new Date().toISOString();
 
-  db.prepare(
+  await execute(
     `INSERT INTO agents (id, name, description, public_key, status, capabilities, model_family, framework, claim_token, claim_expires_at, verified_at)
-     VALUES (?, ?, ?, ?, 'verified', ?, ?, ?, ?, ?, ?)`
-  ).run(
-    agentId,
-    name,
-    description,
-    publicKey,
-    JSON.stringify(capabilities),
-    modelFamily,
-    framework,
-    claimToken,
-    claimExpiresAt,
-    verifiedAt
+     VALUES ($1, $2, $3, $4, 'verified', $5, $6, $7, $8, $9, $10)`,
+    [
+      agentId,
+      name,
+      description,
+      publicKey,
+      JSON.stringify(capabilities),
+      modelFamily,
+      framework,
+      claimToken,
+      claimExpiresAt,
+      verifiedAt,
+    ]
   );
 
   // Generate proof token
@@ -104,10 +104,11 @@ export async function createVerifiedAgent(
   const token = await signProofToken(agentId, proofId, payload, expiresInDays);
 
   // Store proof
-  db.prepare(
+  await execute(
     `INSERT INTO proofs (id, agent_id, challenge_id, token, expires_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(proofId, agentId, challengeId, token, proofExpiresAt);
+     VALUES ($1, $2, $3, $4, $5)`,
+    [proofId, agentId, challengeId, token, proofExpiresAt]
+  );
 
   const baseUrl = process.env.BASE_URL || "https://knowyourclaw.com";
 
@@ -142,9 +143,11 @@ export async function createVerifiedAgent(
 /**
  * Get agent by ID
  */
-export function getAgent(agentId: string): Agent | null {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
+export async function getAgent(agentId: string): Promise<Agent | null> {
+  const row = await queryOne<any>(
+    "SELECT * FROM agents WHERE id = $1",
+    [agentId]
+  );
 
   if (!row) return null;
 
@@ -168,11 +171,11 @@ export function getAgent(agentId: string): Agent | null {
 /**
  * Get agent by public key
  */
-export function getAgentByPublicKey(publicKey: string): Agent | null {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM agents WHERE public_key = ?")
-    .get(publicKey) as any;
+export async function getAgentByPublicKey(publicKey: string): Promise<Agent | null> {
+  const row = await queryOne<any>(
+    "SELECT * FROM agents WHERE public_key = $1",
+    [publicKey]
+  );
 
   if (!row) return null;
 
@@ -196,9 +199,11 @@ export function getAgentByPublicKey(publicKey: string): Agent | null {
 /**
  * Get proof by ID
  */
-export function getProof(proofId: string): Proof | null {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM proofs WHERE id = ?").get(proofId) as any;
+export async function getProof(proofId: string): Promise<Proof | null> {
+  const row = await queryOne<any>(
+    "SELECT * FROM proofs WHERE id = $1",
+    [proofId]
+  );
 
   if (!row) return null;
 
@@ -216,11 +221,11 @@ export function getProof(proofId: string): Proof | null {
 /**
  * Get proof by agent ID
  */
-export function getProofByAgentId(agentId: string): Proof | null {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM proofs WHERE agent_id = ? AND status = 'active' ORDER BY issued_at DESC LIMIT 1")
-    .get(agentId) as any;
+export async function getProofByAgentId(agentId: string): Promise<Proof | null> {
+  const row = await queryOne<any>(
+    "SELECT * FROM proofs WHERE agent_id = $1 AND status = 'active' ORDER BY issued_at DESC LIMIT 1",
+    [agentId]
+  );
 
   if (!row) return null;
 
@@ -238,25 +243,25 @@ export function getProofByAgentId(agentId: string): Proof | null {
 /**
  * Record a proof verification
  */
-export function recordVerification(proofId: string, platformId: string): void {
-  const db = getDb();
-  db.prepare(
+export async function recordVerification(proofId: string, platformId: string): Promise<void> {
+  await execute(
     `UPDATE proofs 
      SET times_verified = times_verified + 1, 
-         last_verified_at = datetime('now'),
-         last_verified_by = ?
-     WHERE id = ?`
-  ).run(platformId, proofId);
+         last_verified_at = NOW(),
+         last_verified_by = $1
+     WHERE id = $2`,
+    [platformId, proofId]
+  );
 }
 
 /**
  * Revoke a proof
  */
-export function revokeProof(proofId: string, reason: string): void {
-  const db = getDb();
-  db.prepare(
+export async function revokeProof(proofId: string, reason: string): Promise<void> {
+  await execute(
     `UPDATE proofs 
-     SET status = 'revoked', revoked_at = datetime('now'), revoke_reason = ?
-     WHERE id = ?`
-  ).run(reason, proofId);
+     SET status = 'revoked', revoked_at = NOW(), revoke_reason = $1
+     WHERE id = $2`,
+    [reason, proofId]
+  );
 }

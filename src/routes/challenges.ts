@@ -60,7 +60,7 @@ challenges.post("/", async (c) => {
     );
     
     // Check rate limits
-    const rateLimitResult = checkRateLimits(ip, fingerprint);
+    const rateLimitResult = await checkRateLimits(ip, fingerprint);
     if (!rateLimitResult.allowed) {
       return c.json({
         success: false,
@@ -73,7 +73,7 @@ challenges.post("/", async (c) => {
     const body = await c.req.json();
     const data = createChallengeSchema.parse(body);
 
-    const challenge = createChallenge(
+    const challenge = await createChallenge(
       data.name,
       data.description || "",
       data.capabilities,
@@ -85,7 +85,7 @@ challenges.post("/", async (c) => {
     );
     
     // Record the attempt
-    recordChallengeAttempt(ip, fingerprint, challenge.id);
+    await recordChallengeAttempt(ip, fingerprint, challenge.id);
 
     return c.json({
       success: true,
@@ -119,7 +119,7 @@ challenges.post("/", async (c) => {
  */
 challenges.get("/:id", async (c) => {
   const challengeId = c.req.param("id");
-  const challenge = getChallenge(challengeId);
+  const challenge = await getChallenge(challengeId);
 
   if (!challenge) {
     return c.json({ success: false, error: "Challenge not found" }, 404);
@@ -150,7 +150,7 @@ challenges.get("/:id", async (c) => {
  */
 challenges.get("/:id/step1", async (c) => {
   const challengeId = c.req.param("id");
-  const challenge = getChallenge(challengeId);
+  const challenge = await getChallenge(challengeId);
 
   if (!challenge) {
     return c.json({ success: false, error: "Challenge not found" }, 404);
@@ -160,13 +160,13 @@ challenges.get("/:id/step1", async (c) => {
     return c.json({ success: false, error: "Challenge expired" }, 410);
   }
 
-  const step = getToolUseStep(challengeId, 1);
+  const step = await getToolUseStep(challengeId, 1);
   if (!step) {
     return c.json({ success: false, error: "Step not found" }, 404);
   }
 
   // Mark step 1 as accessed
-  completeToolUseStep(challengeId, 1, "accessed");
+  await completeToolUseStep(challengeId, 1, "accessed");
 
   return c.json({
     success: true,
@@ -182,7 +182,7 @@ challenges.get("/:id/step1", async (c) => {
  */
 challenges.post("/:id/step2", async (c) => {
   const challengeId = c.req.param("id");
-  const challenge = getChallenge(challengeId);
+  const challenge = await getChallenge(challengeId);
 
   if (!challenge) {
     return c.json({ success: false, error: "Challenge not found" }, 404);
@@ -197,19 +197,19 @@ challenges.post("/:id/step2", async (c) => {
     const { value } = body;
 
     // Verify step 1 was completed and value matches
-    const step1 = getToolUseStep(challengeId, 1);
+    const step1 = await getToolUseStep(challengeId, 1);
     if (!step1 || step1.expectedValue !== value) {
       return c.json({ success: false, error: "Invalid value from step 1" }, 400);
     }
 
     // Get step 2 token
-    const step2 = getToolUseStep(challengeId, 2);
+    const step2 = await getToolUseStep(challengeId, 2);
     if (!step2) {
       return c.json({ success: false, error: "Step not found" }, 404);
     }
 
     // Mark step 2 as completed with the received value
-    completeToolUseStep(challengeId, 2, value);
+    await completeToolUseStep(challengeId, 2, value);
 
     return c.json({
       success: true,
@@ -230,7 +230,7 @@ challenges.get("/:id/step3", async (c) => {
   const challengeId = c.req.param("id");
   const token = c.req.query("token");
 
-  const challenge = getChallenge(challengeId);
+  const challenge = await getChallenge(challengeId);
 
   if (!challenge) {
     return c.json({ success: false, error: "Challenge not found" }, 404);
@@ -241,19 +241,19 @@ challenges.get("/:id/step3", async (c) => {
   }
 
   // Verify token from step 2
-  const step2 = getToolUseStep(challengeId, 2);
+  const step2 = await getToolUseStep(challengeId, 2);
   if (!step2 || step2.expectedValue !== token) {
     return c.json({ success: false, error: "Invalid token from step 2" }, 400);
   }
 
   // Get final value
-  const step3 = getToolUseStep(challengeId, 3);
+  const step3 = await getToolUseStep(challengeId, 3);
   if (!step3) {
     return c.json({ success: false, error: "Step not found" }, 404);
   }
 
   // Mark step 3 as completed
-  completeToolUseStep(challengeId, 3, step3.expectedValue);
+  await completeToolUseStep(challengeId, 3, step3.expectedValue);
 
   return c.json({
     success: true,
@@ -268,7 +268,7 @@ challenges.get("/:id/step3", async (c) => {
  */
 challenges.get("/:id/speed/a", async (c) => {
   const challengeId = c.req.param("id");
-  const challenge = getChallenge(challengeId);
+  const challenge = await getChallenge(challengeId);
 
   if (!challenge) {
     return c.json({ success: false, error: "Challenge not found" }, 404);
@@ -278,7 +278,7 @@ challenges.get("/:id/speed/a", async (c) => {
     return c.json({ success: false, error: "Challenge expired" }, 410);
   }
 
-  const tokenData = getSpeedToken(challengeId, "a");
+  const tokenData = await getSpeedToken(challengeId, "a");
   if (!tokenData) {
     return c.json({ success: false, error: "Speed token not found" }, 404);
   }
@@ -296,7 +296,7 @@ challenges.get("/:id/speed/a", async (c) => {
  */
 challenges.get("/:id/speed/b", async (c) => {
   const challengeId = c.req.param("id");
-  const challenge = getChallenge(challengeId);
+  const challenge = await getChallenge(challengeId);
 
   if (!challenge) {
     return c.json({ success: false, error: "Challenge not found" }, 404);
@@ -306,7 +306,7 @@ challenges.get("/:id/speed/b", async (c) => {
     return c.json({ success: false, error: "Challenge expired" }, 410);
   }
 
-  const tokenData = getSpeedToken(challengeId, "b");
+  const tokenData = await getSpeedToken(challengeId, "b");
   if (!tokenData) {
     return c.json({ success: false, error: "Speed token not found" }, 404);
   }
@@ -324,7 +324,7 @@ challenges.get("/:id/speed/b", async (c) => {
  */
 challenges.get("/:id/speed/c", async (c) => {
   const challengeId = c.req.param("id");
-  const challenge = getChallenge(challengeId);
+  const challenge = await getChallenge(challengeId);
 
   if (!challenge) {
     return c.json({ success: false, error: "Challenge not found" }, 404);
@@ -334,7 +334,7 @@ challenges.get("/:id/speed/c", async (c) => {
     return c.json({ success: false, error: "Challenge expired" }, 410);
   }
 
-  const tokenData = getSpeedToken(challengeId, "c");
+  const tokenData = await getSpeedToken(challengeId, "c");
   if (!tokenData) {
     return c.json({ success: false, error: "Speed token not found" }, 404);
   }

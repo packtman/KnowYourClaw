@@ -9,19 +9,35 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - BASE_URL=http://localhost:3000
-      - DATABASE_PATH=/app/data/agentproof.db
+      - DATABASE_URL=postgresql://agentproof:agentproof@postgres:5432/agentproof
       # Add your JWT keys here or generate on first run
       # - JWT_PRIVATE_KEY=
       # - JWT_PUBLIC_KEY=
-    volumes:
-      - agentproof_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agentproof
+      POSTGRES_PASSWORD: agentproof
+      POSTGRES_DB: agentproof
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentproof"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
-  agentproof_data:
+  postgres_data:

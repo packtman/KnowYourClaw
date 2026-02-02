@@ -12,7 +12,7 @@
  */
 
 import { Hono } from "hono";
-import { getDb } from "../db/index.js";
+import { query, queryOne, execute } from "../db/index.js";
 import * as crypto from "crypto";
 
 const claim = new Hono();
@@ -90,7 +90,7 @@ interface OwnerRow {
 interface ClaimVerificationRow {
   id: string;
   claim_token: string;
-  verification_code: string;
+  code_verifier: string;
   created_at: string;
   expires_at: string;
 }
@@ -107,13 +107,12 @@ claim.get("/:token", async (c) => {
   if (claimToken === "auth") {
     return c.notFound();
   }
-  
-  const db = getDb();
 
   // Find agent by claim token
-  const agent = db.prepare(
-    "SELECT * FROM agents WHERE claim_token = ?"
-  ).get(claimToken) as AgentRow | undefined;
+  const agent = await queryOne<AgentRow>(
+    "SELECT * FROM agents WHERE claim_token = $1",
+    [claimToken]
+  );
 
   if (!agent) {
     return c.json({
@@ -133,17 +132,19 @@ claim.get("/:token", async (c) => {
   }
 
   // Check if already claimed
-  let owner: OwnerRow | undefined;
+  let owner: OwnerRow | null = null;
   if (agent.owner_id) {
-    owner = db.prepare(
-      "SELECT * FROM owners WHERE id = ?"
-    ).get(agent.owner_id) as OwnerRow | undefined;
+    owner = await queryOne<OwnerRow>(
+      "SELECT * FROM owners WHERE id = $1",
+      [agent.owner_id]
+    );
   }
 
   // Generate or retrieve verification code for this claim
-  let verification = db.prepare(
-    "SELECT * FROM oauth_states WHERE claim_token = ? AND expires_at > datetime('now')"
-  ).get(claimToken) as ClaimVerificationRow | undefined;
+  let verification = await queryOne<ClaimVerificationRow>(
+    "SELECT * FROM oauth_states WHERE claim_token = $1 AND expires_at > NOW()",
+    [claimToken]
+  );
 
   if (!verification) {
     // Create new verification code
@@ -151,22 +152,23 @@ claim.get("/:token", async (c) => {
     const id = crypto.randomBytes(16).toString("hex");
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
 
-    db.prepare(
+    await execute(
       `INSERT INTO oauth_states (id, provider, claim_token, code_verifier, expires_at)
-       VALUES (?, 'twitter', ?, ?, ?)`
-    ).run(id, claimToken, code, expiresAt);
+       VALUES ($1, 'twitter', $2, $3, $4)`,
+      [id, claimToken, code, expiresAt]
+    );
 
     verification = {
       id,
       claim_token: claimToken,
-      verification_code: code,
+      code_verifier: code,
       created_at: new Date().toISOString(),
       expires_at: expiresAt,
     };
   }
 
   // Build the tweet text
-  const tweetText = `I'm claiming "${agent.name}" on @KnowYourClaw 🪪\n\nVerify: ${verification.verification_code || (verification as any).code_verifier}\n\n${getBaseUrl()}/a/${encodeURIComponent(agent.name)}`;
+  const tweetText = `I'm claiming "${agent.name}" on @KnowYourClaw 🪪\n\nVerify: ${verification.code_verifier}\n\n${getBaseUrl()}/a/${encodeURIComponent(agent.name)}`;
   const tweetIntentUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
 
   return c.json({
@@ -190,7 +192,7 @@ claim.get("/:token", async (c) => {
     } : undefined,
     // Tweet verification data
     verification: !agent.owner_id ? {
-      code: verification.verification_code || (verification as any).code_verifier,
+      code: verification.code_verifier,
       tweet_text: tweetText,
       tweet_intent_url: tweetIntentUrl,
       expires_at: verification.expires_at,
@@ -204,7 +206,6 @@ claim.get("/:token", async (c) => {
  */
 claim.post("/:token", async (c) => {
   const claimToken = c.req.param("token");
-  const db = getDb();
 
   try {
     const body = await c.req.json();
@@ -231,9 +232,10 @@ claim.post("/:token", async (c) => {
     }
 
     // Find agent by claim token
-    const agent = db.prepare(
-      "SELECT * FROM agents WHERE claim_token = ?"
-    ).get(claimToken) as AgentRow | undefined;
+    const agent = await queryOne<AgentRow>(
+      "SELECT * FROM agents WHERE claim_token = $1",
+      [claimToken]
+    );
 
     if (!agent) {
       return c.json({
@@ -259,9 +261,10 @@ claim.post("/:token", async (c) => {
     }
 
     // Verify we have a verification code for this claim
-    const verification = db.prepare(
-      "SELECT * FROM oauth_states WHERE claim_token = ? AND expires_at > datetime('now')"
-    ).get(claimToken) as ClaimVerificationRow | undefined;
+    const verification = await queryOne<ClaimVerificationRow>(
+      "SELECT * FROM oauth_states WHERE claim_token = $1 AND expires_at > NOW()",
+      [claimToken]
+    );
 
     if (!verification) {
       return c.json({
@@ -272,14 +275,16 @@ claim.post("/:token", async (c) => {
     }
 
     // Check if this Twitter account already claimed another agent
-    const existingOwner = db.prepare(
-      "SELECT * FROM owners WHERE provider = 'twitter' AND handle = ?"
-    ).get(username.toLowerCase()) as OwnerRow | undefined;
+    const existingOwner = await queryOne<OwnerRow>(
+      "SELECT * FROM owners WHERE provider = 'twitter' AND handle = $1",
+      [username.toLowerCase()]
+    );
 
     if (existingOwner) {
-      const existingAgent = db.prepare(
-        "SELECT name FROM agents WHERE owner_id = ?"
-      ).get(existingOwner.id) as { name: string } | undefined;
+      const existingAgent = await queryOne<{ name: string }>(
+        "SELECT name FROM agents WHERE owner_id = $1",
+        [existingOwner.id]
+      );
 
       if (existingAgent) {
         return c.json({
@@ -294,25 +299,28 @@ claim.post("/:token", async (c) => {
     let ownerId: string;
     if (existingOwner) {
       ownerId = existingOwner.id;
-      db.prepare(
-        `UPDATE owners SET updated_at = datetime('now') WHERE id = ?`
-      ).run(ownerId);
+      await execute(
+        `UPDATE owners SET updated_at = NOW() WHERE id = $1`,
+        [ownerId]
+      );
     } else {
       ownerId = `own_${Date.now().toString(36)}${crypto.randomBytes(3).toString("hex")}`;
-      db.prepare(
+      await execute(
         `INSERT INTO owners (id, provider, provider_id, handle, display_name, avatar_url)
-         VALUES (?, 'twitter', ?, ?, NULL, NULL)`
-      ).run(ownerId, tweetId, username.toLowerCase()); // Using tweet ID as provider_id for uniqueness
+         VALUES ($1, 'twitter', $2, $3, NULL, NULL)`,
+        [ownerId, tweetId, username.toLowerCase()]
+      );
     }
 
     // Update agent with owner and clear claim token
-    db.prepare(
-      `UPDATE agents SET owner_id = ?, claim_token = NULL, updated_at = datetime('now')
-       WHERE id = ?`
-    ).run(ownerId, agent.id);
+    await execute(
+      `UPDATE agents SET owner_id = $1, claim_token = NULL, updated_at = NOW()
+       WHERE id = $2`,
+      [ownerId, agent.id]
+    );
 
     // Clean up verification code
-    db.prepare("DELETE FROM oauth_states WHERE claim_token = ?").run(claimToken);
+    await execute("DELETE FROM oauth_states WHERE claim_token = $1", [claimToken]);
 
     return c.json({
       success: true,

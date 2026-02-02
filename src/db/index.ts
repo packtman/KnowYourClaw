@@ -1,69 +1,102 @@
 /**
  * Database connection and utilities
- * Using better-sqlite3 for Node.js
+ * Using PostgreSQL with pg
  */
 
-import Database from "better-sqlite3";
+import pg from "pg";
 import { schema } from "./schema.js";
-import * as fs from "fs";
-import * as path from "path";
 
-let db: Database.Database | null = null;
+const { Pool } = pg;
 
-export function getDb(): Database.Database {
-  if (!db) {
-    const dbPath = process.env.DATABASE_PATH || "./data/agentproof.db";
+let pool: pg.Pool | null = null;
+
+export function getPool(): pg.Pool {
+  if (!pool) {
+    // Support both DATABASE_URL (DO App Platform format) and individual vars
+    const connectionString = process.env.DATABASE_URL;
     
-    // Ensure data directory exists
-    const dir = path.dirname(dbPath);
-    if (dir && !fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    if (connectionString) {
+      pool = new Pool({
+        connectionString,
+        ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+      });
+    } else {
+      // Fallback to individual environment variables
+      pool = new Pool({
+        host: process.env.PGHOST || "localhost",
+        port: parseInt(process.env.PGPORT || "5432", 10),
+        database: process.env.PGDATABASE || "agentproof",
+        user: process.env.PGUSER || "postgres",
+        password: process.env.PGPASSWORD || "",
+        ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+      });
     }
-    
-    db = new Database(dbPath);
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
   }
-  return db;
-}
-
-export function initializeDb(): void {
-  const database = getDb();
-  database.exec(schema);
-  
-  // Run migrations for existing databases
-  runMigrations(database);
-  
-  console.log("✅ Database initialized");
+  return pool;
 }
 
 /**
- * Run migrations to update existing databases with new columns
+ * Execute a query and return all rows
  */
-function runMigrations(database: Database.Database): void {
-  // Check if email_verification_token column exists on platforms table
-  const platformColumns = database.prepare("PRAGMA table_info(platforms)").all() as { name: string }[];
-  const columnNames = platformColumns.map(c => c.name);
-  
-  // Add missing columns for email verification
-  if (!columnNames.includes("email_verification_token")) {
-    database.exec("ALTER TABLE platforms ADD COLUMN email_verification_token TEXT");
-  }
-  if (!columnNames.includes("email_verification_expires_at")) {
-    database.exec("ALTER TABLE platforms ADD COLUMN email_verification_expires_at TEXT");
-  }
-  if (!columnNames.includes("email_verified_at")) {
-    database.exec("ALTER TABLE platforms ADD COLUMN email_verified_at TEXT");
-  }
-  
-  // Update existing platforms to 'active' status (they were created before email verification)
-  // and ensure they have contact_email if missing (allow NULL for legacy)
+export async function query<T = any>(
+  text: string,
+  params?: any[]
+): Promise<T[]> {
+  const result = await getPool().query(text, params);
+  return result.rows;
 }
 
-export function closeDb(): void {
-  if (db) {
-    db.close();
-    db = null;
+/**
+ * Execute a query and return the first row
+ */
+export async function queryOne<T = any>(
+  text: string,
+  params?: any[]
+): Promise<T | null> {
+  const result = await getPool().query(text, params);
+  return result.rows[0] || null;
+}
+
+/**
+ * Execute a query (for INSERT/UPDATE/DELETE)
+ */
+export async function execute(
+  text: string,
+  params?: any[]
+): Promise<{ rowCount: number }> {
+  const result = await getPool().query(text, params);
+  return { rowCount: result.rowCount || 0 };
+}
+
+export async function initializeDb(): Promise<void> {
+  const p = getPool();
+  
+  // Split schema into individual statements (PostgreSQL doesn't support multi-statement exec like SQLite)
+  const statements = schema
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  for (const statement of statements) {
+    try {
+      await p.query(statement);
+    } catch (error: any) {
+      // Ignore "already exists" errors for CREATE INDEX IF NOT EXISTS
+      // PostgreSQL may throw errors even with IF NOT EXISTS in some cases
+      if (!error.message.includes("already exists")) {
+        console.error(`Schema error: ${error.message}`);
+        throw error;
+      }
+    }
+  }
+
+  console.log("✅ Database initialized");
+}
+
+export async function closeDb(): Promise<void> {
+  if (pool) {
+    await pool.end();
+    pool = null;
   }
 }
 
@@ -77,4 +110,11 @@ export function generateId(prefix: string): string {
   return `${prefix}_${id}`;
 }
 
-export default { getDb, initializeDb, closeDb, generateId };
+// Legacy export for compatibility - but should migrate to async functions
+export function getDb() {
+  return {
+    query: getPool().query.bind(getPool()),
+  };
+}
+
+export default { getPool, query, queryOne, execute, initializeDb, closeDb, generateId };

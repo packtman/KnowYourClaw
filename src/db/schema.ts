@@ -1,6 +1,6 @@
 /**
  * Database schema for AgentProof
- * Using Bun's built-in SQLite
+ * Using PostgreSQL
  */
 
 export const schema = `
@@ -15,11 +15,11 @@ CREATE TABLE IF NOT EXISTS agents (
   model_family TEXT,
   framework TEXT,
   claim_token TEXT,
-  claim_expires_at TEXT,
+  claim_expires_at TIMESTAMP,
   owner_id TEXT,
-  verified_at TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  verified_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Challenges table
@@ -32,24 +32,24 @@ CREATE TABLE IF NOT EXISTS challenges (
   difficulty TEXT DEFAULT 'standard' CHECK(difficulty IN ('easy', 'standard', 'hard')),
   tasks TEXT NOT NULL, -- JSON
   status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed', 'failed', 'expired')),
-  started_at TEXT,
-  completed_at TEXT,
-  expires_at TEXT NOT NULL,
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL,
   time_taken_ms INTEGER,
   tasks_completed INTEGER DEFAULT 0,
   tasks_failed INTEGER DEFAULT 0,
   ip_address TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Challenge progress (for tool-use multi-step)
 CREATE TABLE IF NOT EXISTS challenge_progress (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   challenge_id TEXT NOT NULL,
   step INTEGER NOT NULL,
   expected_value TEXT,
   received_value TEXT,
-  completed_at TEXT,
+  completed_at TIMESTAMP,
   UNIQUE(challenge_id, step),
   FOREIGN KEY (challenge_id) REFERENCES challenges(id)
 );
@@ -60,13 +60,13 @@ CREATE TABLE IF NOT EXISTS proofs (
   agent_id TEXT NOT NULL,
   challenge_id TEXT NOT NULL,
   token TEXT NOT NULL,
-  issued_at TEXT DEFAULT (datetime('now')),
-  expires_at TEXT NOT NULL,
+  issued_at TIMESTAMP DEFAULT NOW(),
+  expires_at TIMESTAMP NOT NULL,
   status TEXT DEFAULT 'active' CHECK(status IN ('active', 'revoked')),
-  revoked_at TEXT,
+  revoked_at TIMESTAMP,
   revoke_reason TEXT,
   times_verified INTEGER DEFAULT 0,
-  last_verified_at TEXT,
+  last_verified_at TIMESTAMP,
   last_verified_by TEXT,
   FOREIGN KEY (agent_id) REFERENCES agents(id),
   FOREIGN KEY (challenge_id) REFERENCES challenges(id)
@@ -81,12 +81,15 @@ CREATE TABLE IF NOT EXISTS platforms (
   api_key_hash TEXT NOT NULL UNIQUE,
   tier TEXT DEFAULT 'free' CHECK(tier IN ('free', 'platform', 'enterprise')),
   rate_limit INTEGER DEFAULT 100,
-  status TEXT DEFAULT 'active' CHECK(status IN ('active', 'suspended')),
+  status TEXT DEFAULT 'active' CHECK(status IN ('active', 'suspended', 'pending_email_verification')),
   verifications_count INTEGER DEFAULT 0,
   verifications_this_month INTEGER DEFAULT 0,
-  last_verification_at TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  last_verification_at TIMESTAMP,
+  email_verification_token TEXT,
+  email_verification_expires_at TIMESTAMP,
+  email_verified_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Owners table (for claimed agents)
@@ -97,38 +100,38 @@ CREATE TABLE IF NOT EXISTS owners (
   handle TEXT NOT NULL,
   display_name TEXT,
   avatar_url TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now')),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(provider, provider_id)
 );
 
 -- Agent bios (for uniqueness checking)
 CREATE TABLE IF NOT EXISTS agent_bios (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   agent_id TEXT NOT NULL,
   bio TEXT NOT NULL,
   bio_hash TEXT NOT NULL,
-  created_at TEXT DEFAULT (datetime('now')),
+  created_at TIMESTAMP DEFAULT NOW(),
   FOREIGN KEY (agent_id) REFERENCES agents(id)
 );
 
 -- Rate limiting log
 CREATE TABLE IF NOT EXISTS rate_limit_log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   ip TEXT NOT NULL,
   fingerprint TEXT NOT NULL,
   challenge_id TEXT,
   public_key TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Timing log for completion analysis
 CREATE TABLE IF NOT EXISTS timing_log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   ip TEXT NOT NULL,
   fingerprint TEXT NOT NULL,
   time_taken_ms INTEGER NOT NULL,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Dynamic challenge storage (for validation after submission)
@@ -142,23 +145,32 @@ CREATE TABLE IF NOT EXISTS dynamic_challenges (
   answer_fix TEXT NOT NULL,
   bug_type TEXT NOT NULL,
   difficulty TEXT NOT NULL,
-  created_at TEXT DEFAULT (datetime('now')),
+  created_at TIMESTAMP DEFAULT NOW(),
   FOREIGN KEY (challenge_id) REFERENCES challenges(id)
 );
 
 -- Speed challenge tokens (for parallel task verification)
 CREATE TABLE IF NOT EXISTS speed_tokens (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  challenge_id TEXT NOT NULL,
+  id SERIAL PRIMARY KEY,
+  challenge_id TEXT NOT NULL UNIQUE,
   token_a TEXT NOT NULL,
   token_b TEXT NOT NULL,
   token_c TEXT NOT NULL,
-  fetch_a_at TEXT,
-  fetch_b_at TEXT,
-  fetch_c_at TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(challenge_id),
+  fetch_a_at TIMESTAMP,
+  fetch_b_at TIMESTAMP,
+  fetch_c_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
   FOREIGN KEY (challenge_id) REFERENCES challenges(id)
+);
+
+-- OAuth states for claim verification
+CREATE TABLE IF NOT EXISTS oauth_states (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  claim_token TEXT NOT NULL,
+  code_verifier TEXT NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Indexes for performance

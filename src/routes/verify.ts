@@ -72,7 +72,7 @@ verify.post("/", platformAuth, async (c) => {
     }
 
     // Get agent info
-    const agent = getAgent(result.payload.sub);
+    const agent = await getAgent(result.payload.sub);
 
     if (!agent) {
       return c.json({
@@ -92,8 +92,8 @@ verify.post("/", platformAuth, async (c) => {
     }
 
     // Record the verification
-    recordVerification(result.payload.jti, platform.id);
-    incrementVerificationCount(platform.id);
+    await recordVerification(result.payload.jti, platform.id);
+    await incrementVerificationCount(platform.id);
 
     return c.json({
       success: true,
@@ -138,7 +138,7 @@ verify.post("/", platformAuth, async (c) => {
  */
 verify.get("/agents/:id", async (c) => {
   const agentId = c.req.param("id");
-  const agent = getAgent(agentId);
+  const agent = await getAgent(agentId);
 
   if (!agent) {
     return c.json({ success: false, error: "Agent not found" }, 404);

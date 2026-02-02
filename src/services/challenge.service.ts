@@ -9,7 +9,7 @@
  * - Timing analysis to detect human-speed submissions
  */
 
-import { getDb, generateId } from "../db/index.js";
+import { query, queryOne, execute, generateId } from "../db/index.js";
 import { generateNonce, generateToken } from "../lib/crypto.js";
 import {
   getRandomChallenge,
@@ -81,7 +81,7 @@ export interface ChallengeResponse {
  * 3. Speed task requiring parallel API calls
  * 4. All tasks designed to be trivial for agents, hard for humans
  */
-export function createChallenge(
+export async function createChallenge(
   agentName: string,
   agentDescription: string,
   capabilities: string[] = [],
@@ -90,8 +90,7 @@ export function createChallenge(
   difficulty: "easy" | "standard" | "hard" = "standard",
   ipAddress?: string,
   fingerprint?: string
-): Challenge {
-  const db = getDb();
+): Promise<Challenge> {
   const challengeId = generateId("ch");
   const nonce = generateNonce(32);
   
@@ -169,55 +168,62 @@ Return JSON: {"bio": "<your unique bio>"}`,
   ];
 
   // Store challenge in database
-  const stmt = db.prepare(
+  await execute(
     `INSERT INTO challenges (id, agent_name, agent_description, nonce, difficulty, tasks, status, expires_at, ip_address)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
-  );
-  stmt.run(
-    challengeId,
-    agentName,
-    agentDescription,
-    nonce,
-    difficulty,
-    JSON.stringify({ 
-      tasks, 
-      dynamicChallengeId: dynamicChallenge.id,
-      reasoningChallengeId: reasoningChallenge.id,
-      timeLimit,
-    }),
-    expiresAt,
-    ipAddress
+     VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)`,
+    [
+      challengeId,
+      agentName,
+      agentDescription,
+      nonce,
+      difficulty,
+      JSON.stringify({ 
+        tasks, 
+        dynamicChallengeId: dynamicChallenge.id,
+        reasoningChallengeId: reasoningChallenge.id,
+        timeLimit,
+      }),
+      expiresAt,
+      ipAddress,
+    ]
   );
 
   // Store tool-use challenge steps (keeping for backwards compat)
-  const progressStmt = db.prepare(
-    `INSERT INTO challenge_progress (challenge_id, step, expected_value)
-     VALUES (?, ?, ?)`
+  await execute(
+    `INSERT INTO challenge_progress (challenge_id, step, expected_value) VALUES ($1, $2, $3)`,
+    [challengeId, 1, step1Value]
   );
-  progressStmt.run(challengeId, 1, step1Value);
-  progressStmt.run(challengeId, 2, step2Token);
-  progressStmt.run(challengeId, 3, step3Final);
+  await execute(
+    `INSERT INTO challenge_progress (challenge_id, step, expected_value) VALUES ($1, $2, $3)`,
+    [challengeId, 2, step2Token]
+  );
+  await execute(
+    `INSERT INTO challenge_progress (challenge_id, step, expected_value) VALUES ($1, $2, $3)`,
+    [challengeId, 3, step3Final]
+  );
   
   // Store speed challenge tokens
-  db.prepare(
+  await execute(
     `INSERT INTO speed_tokens (challenge_id, token_a, token_b, token_c)
-     VALUES (?, ?, ?, ?)`
-  ).run(challengeId, speedTokenA, speedTokenB, speedTokenC);
+     VALUES ($1, $2, $3, $4)`,
+    [challengeId, speedTokenA, speedTokenB, speedTokenC]
+  );
   
   // Store dynamic challenge for validation
-  db.prepare(
+  await execute(
     `INSERT INTO dynamic_challenges (id, challenge_id, language, code, answer_line, answer_issue, answer_fix, bug_type, difficulty)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    dynamicChallenge.id,
-    challengeId,
-    dynamicChallenge.language,
-    dynamicChallenge.code,
-    dynamicChallenge.answer.line,
-    dynamicChallenge.answer.issue,
-    dynamicChallenge.answer.fix,
-    dynamicChallenge.bugType,
-    dynamicChallenge.difficulty
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      dynamicChallenge.id,
+      challengeId,
+      dynamicChallenge.language,
+      dynamicChallenge.code,
+      dynamicChallenge.answer.line,
+      dynamicChallenge.answer.issue,
+      dynamicChallenge.answer.fix,
+      dynamicChallenge.bugType,
+      dynamicChallenge.difficulty,
+    ]
   );
 
   return {
@@ -241,9 +247,11 @@ Return JSON: {"bio": "<your unique bio>"}`,
 /**
  * Get challenge by ID
  */
-export function getChallenge(challengeId: string): Challenge | null {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM challenges WHERE id = ?").get(challengeId) as any;
+export async function getChallenge(challengeId: string): Promise<Challenge | null> {
+  const row = await queryOne<any>(
+    "SELECT * FROM challenges WHERE id = $1",
+    [challengeId]
+  );
 
   if (!row) return null;
 
@@ -255,9 +263,10 @@ export function getChallenge(challengeId: string): Challenge | null {
   );
   
   // Get dynamic challenge if exists
-  const dynamicRow = db.prepare(
-    "SELECT * FROM dynamic_challenges WHERE challenge_id = ?"
-  ).get(challengeId) as any;
+  const dynamicRow = await queryOne<any>(
+    "SELECT * FROM dynamic_challenges WHERE challenge_id = $1",
+    [challengeId]
+  );
   
   let dynamicChallenge: DynamicChallenge | undefined;
   if (dynamicRow) {
@@ -296,14 +305,14 @@ export function getChallenge(challengeId: string): Challenge | null {
 /**
  * Get tool-use step data
  */
-export function getToolUseStep(
+export async function getToolUseStep(
   challengeId: string,
   step: number
-): { expectedValue: string; receivedValue?: string } | null {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM challenge_progress WHERE challenge_id = ? AND step = ?")
-    .get(challengeId, step) as any;
+): Promise<{ expectedValue: string; receivedValue?: string } | null> {
+  const row = await queryOne<any>(
+    "SELECT * FROM challenge_progress WHERE challenge_id = $1 AND step = $2",
+    [challengeId, step]
+  );
 
   if (!row) return null;
 
@@ -316,31 +325,31 @@ export function getToolUseStep(
 /**
  * Mark tool-use step as completed
  */
-export function completeToolUseStep(
+export async function completeToolUseStep(
   challengeId: string,
   step: number,
   receivedValue: string
-): boolean {
-  const db = getDb();
-  const result = db.prepare(
+): Promise<boolean> {
+  const result = await execute(
     `UPDATE challenge_progress 
-     SET received_value = ?, completed_at = datetime('now')
-     WHERE challenge_id = ? AND step = ?`
-  ).run(receivedValue, challengeId, step);
-  return result.changes > 0;
+     SET received_value = $1, completed_at = NOW()
+     WHERE challenge_id = $2 AND step = $3`,
+    [receivedValue, challengeId, step]
+  );
+  return result.rowCount > 0;
 }
 
 /**
  * Check if all tool-use steps are completed correctly
  */
-export function validateToolUseCompletion(challengeId: string): {
+export async function validateToolUseCompletion(challengeId: string): Promise<{
   passed: boolean;
   error?: string;
-} {
-  const db = getDb();
-  const steps = db
-    .prepare("SELECT * FROM challenge_progress WHERE challenge_id = ? ORDER BY step")
-    .all(challengeId) as any[];
+}> {
+  const steps = await query<any>(
+    "SELECT * FROM challenge_progress WHERE challenge_id = $1 ORDER BY step",
+    [challengeId]
+  );
 
   for (const step of steps) {
     if (!step.completed_at) {
@@ -360,45 +369,44 @@ export function validateToolUseCompletion(challengeId: string): {
 /**
  * Update challenge status
  */
-export function updateChallengeStatus(
+export async function updateChallengeStatus(
   challengeId: string,
   status: string,
   agentId?: string,
   timeTakenMs?: number
-): void {
-  const db = getDb();
-  
+): Promise<void> {
   if (status === "completed" || status === "failed") {
-    db.prepare(
+    await execute(
       `UPDATE challenges 
-       SET status = ?, agent_id = ?, completed_at = datetime('now'), time_taken_ms = ?
-       WHERE id = ?`
-    ).run(status, agentId, timeTakenMs, challengeId);
+       SET status = $1, agent_id = $2, completed_at = NOW(), time_taken_ms = $3
+       WHERE id = $4`,
+      [status, agentId, timeTakenMs, challengeId]
+    );
   } else {
-    db.prepare(
-      `UPDATE challenges SET status = ? WHERE id = ?`
-    ).run(status, challengeId);
+    await execute(
+      `UPDATE challenges SET status = $1 WHERE id = $2`,
+      [status, challengeId]
+    );
   }
 }
 
 /**
  * Get all existing bios for uniqueness checking
  */
-export function getExistingBios(): string[] {
-  const db = getDb();
-  const rows = db.prepare("SELECT bio FROM agent_bios").all() as { bio: string }[];
+export async function getExistingBios(): Promise<string[]> {
+  const rows = await query<{ bio: string }>("SELECT bio FROM agent_bios");
   return rows.map((r) => r.bio);
 }
 
 /**
  * Store a new bio
  */
-export function storeBio(agentId: string, bio: string): void {
-  const db = getDb();
+export async function storeBio(agentId: string, bio: string): Promise<void> {
   const bioHash = simpleHash(bio);
-  db.prepare(
-    `INSERT INTO agent_bios (agent_id, bio, bio_hash) VALUES (?, ?, ?)`
-  ).run(agentId, bio, bioHash);
+  await execute(
+    `INSERT INTO agent_bios (agent_id, bio, bio_hash) VALUES ($1, $2, $3)`,
+    [agentId, bio, bioHash]
+  );
 }
 
 // Import for reasoning validation
@@ -407,24 +415,24 @@ import { reasoningChallenges } from "../lib/reasoning-challenges.js";
 /**
  * Get speed token for a challenge
  */
-export function getSpeedToken(
+export async function getSpeedToken(
   challengeId: string,
   endpoint: "a" | "b" | "c"
-): { token: string } | null {
-  const db = getDb();
-  const row = db.prepare(
-    "SELECT * FROM speed_tokens WHERE challenge_id = ?"
-  ).get(challengeId) as any;
+): Promise<{ token: string } | null> {
+  const row = await queryOne<any>(
+    "SELECT * FROM speed_tokens WHERE challenge_id = $1",
+    [challengeId]
+  );
   
   if (!row) return null;
   
   const tokenKey = `token_${endpoint}` as keyof typeof row;
-  const fetchKey = `fetch_${endpoint}_at` as keyof typeof row;
   
   // Record fetch time
-  db.prepare(
-    `UPDATE speed_tokens SET fetch_${endpoint}_at = datetime('now') WHERE challenge_id = ?`
-  ).run(challengeId);
+  await execute(
+    `UPDATE speed_tokens SET fetch_${endpoint}_at = NOW() WHERE challenge_id = $1`,
+    [challengeId]
+  );
   
   return { token: row[tokenKey] };
 }
@@ -432,14 +440,14 @@ export function getSpeedToken(
 /**
  * Validate speed challenge - tokens must be fetched in parallel (within 2 seconds of each other)
  */
-export function validateSpeedChallenge(
+export async function validateSpeedChallenge(
   challengeId: string,
   submittedCombined: string
-): { passed: boolean; error?: string; wasParallel: boolean } {
-  const db = getDb();
-  const row = db.prepare(
-    "SELECT * FROM speed_tokens WHERE challenge_id = ?"
-  ).get(challengeId) as any;
+): Promise<{ passed: boolean; error?: string; wasParallel: boolean }> {
+  const row = await queryOne<any>(
+    "SELECT * FROM speed_tokens WHERE challenge_id = $1",
+    [challengeId]
+  );
   
   if (!row) {
     return { passed: false, error: "Speed challenge not found", wasParallel: false };

@@ -8,11 +8,11 @@ import { initializeDb, closeDb } from "./index.js";
 console.log("🔧 Setting up KnowYourClaw database...");
 
 try {
-  initializeDb();
+  await initializeDb();
   console.log("✅ Database setup complete!");
 } catch (error) {
   console.error("❌ Database setup failed:", error);
   process.exit(1);
 } finally {
-  closeDb();
+  await closeDb();
 }

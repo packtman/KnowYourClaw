@@ -3,7 +3,7 @@
  * Handles platform registration, email verification, and API key management
  */
 
-import { getDb, generateId } from "../db/index.js";
+import { query, queryOne, execute, generateId } from "../db/index.js";
 import { generateApiKey, hashApiKey } from "../lib/crypto.js";
 import * as crypto from "crypto";
 
@@ -43,17 +43,16 @@ export async function registerPlatform(
   contactEmail: string,
   domain?: string
 ): Promise<{ platform: Platform; verificationToken?: string; apiKey?: string }> {
-  const db = getDb();
-
   // Email is now required
   if (!contactEmail || !contactEmail.includes("@")) {
     throw new Error("Valid email address is required");
   }
 
   // Check if platform with same email exists
-  const existingEmail = db
-    .prepare("SELECT id, status FROM platforms WHERE contact_email = ?")
-    .get(contactEmail) as { id: string; status: string } | null;
+  const existingEmail = await queryOne<{ id: string; status: string }>(
+    "SELECT id, status FROM platforms WHERE contact_email = $1",
+    [contactEmail]
+  );
 
   if (existingEmail) {
     if (existingEmail.status === "pending_email_verification") {
@@ -64,9 +63,10 @@ export async function registerPlatform(
 
   // Check if platform with same domain exists
   if (domain) {
-    const existingDomain = db
-      .prepare("SELECT id FROM platforms WHERE domain = ?")
-      .get(domain) as { id: string } | null;
+    const existingDomain = await queryOne<{ id: string }>(
+      "SELECT id FROM platforms WHERE domain = $1",
+      [domain]
+    );
 
     if (existingDomain) {
       throw new Error("A platform with this domain already exists");
@@ -83,10 +83,11 @@ export async function registerPlatform(
     const verificationTokenHash = crypto.createHash("sha256").update(verificationToken).digest("hex");
     const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
 
-    db.prepare(
+    await execute(
       `INSERT INTO platforms (id, name, domain, contact_email, api_key_hash, status, email_verification_token, email_verification_expires_at)
-       VALUES (?, ?, ?, ?, ?, 'pending_email_verification', ?, ?)`
-    ).run(platformId, name, domain, contactEmail, apiKeyHash, verificationTokenHash, expiresAt);
+       VALUES ($1, $2, $3, $4, $5, 'pending_email_verification', $6, $7)`,
+      [platformId, name, domain, contactEmail, apiKeyHash, verificationTokenHash, expiresAt]
+    );
 
     const platform: Platform = {
       id: platformId,
@@ -105,10 +106,11 @@ export async function registerPlatform(
     return { platform, verificationToken };
   } else {
     // Old behavior: return API key immediately (no email verification)
-    db.prepare(
+    await execute(
       `INSERT INTO platforms (id, name, domain, contact_email, api_key_hash, status)
-       VALUES (?, ?, ?, ?, ?, 'active')`
-    ).run(platformId, name, domain, contactEmail, apiKeyHash);
+       VALUES ($1, $2, $3, $4, $5, 'active')`,
+      [platformId, name, domain, contactEmail, apiKeyHash]
+    );
 
     const platform: Platform = {
       id: platformId,
@@ -133,17 +135,15 @@ export async function registerPlatform(
 export async function verifyPlatformEmail(
   token: string
 ): Promise<{ platform: Platform; apiKey: string } | null> {
-  const db = getDb();
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
   // Find platform with this token
-  const row = db
-    .prepare(`
-      SELECT * FROM platforms 
-      WHERE email_verification_token = ? 
-        AND status = 'pending_email_verification'
-    `)
-    .get(tokenHash) as any;
+  const row = await queryOne<any>(
+    `SELECT * FROM platforms 
+     WHERE email_verification_token = $1 
+       AND status = 'pending_email_verification'`,
+    [tokenHash]
+  );
 
   if (!row) {
     return null;
@@ -159,16 +159,17 @@ export async function verifyPlatformEmail(
   const apiKeyHash = await hashApiKey(apiKey);
 
   // Activate the platform
-  db.prepare(`
-    UPDATE platforms 
-    SET status = 'active',
-        api_key_hash = ?,
-        email_verification_token = NULL,
-        email_verification_expires_at = NULL,
-        email_verified_at = datetime('now'),
-        updated_at = datetime('now')
-    WHERE id = ?
-  `).run(apiKeyHash, row.id);
+  await execute(
+    `UPDATE platforms 
+     SET status = 'active',
+         api_key_hash = $1,
+         email_verification_token = NULL,
+         email_verification_expires_at = NULL,
+         email_verified_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $2`,
+    [apiKeyHash, row.id]
+  );
 
   const platform: Platform = {
     id: row.id,
@@ -193,15 +194,12 @@ export async function verifyPlatformEmail(
 export async function resendVerificationEmail(
   email: string
 ): Promise<{ platform: Platform; verificationToken: string } | null> {
-  const db = getDb();
-
-  const row = db
-    .prepare(`
-      SELECT * FROM platforms 
-      WHERE contact_email = ? 
-        AND status = 'pending_email_verification'
-    `)
-    .get(email) as any;
+  const row = await queryOne<any>(
+    `SELECT * FROM platforms 
+     WHERE contact_email = $1 
+       AND status = 'pending_email_verification'`,
+    [email]
+  );
 
   if (!row) {
     return null;
@@ -212,13 +210,14 @@ export async function resendVerificationEmail(
   const verificationTokenHash = crypto.createHash("sha256").update(verificationToken).digest("hex");
   const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
 
-  db.prepare(`
-    UPDATE platforms 
-    SET email_verification_token = ?,
-        email_verification_expires_at = ?,
-        updated_at = datetime('now')
-    WHERE id = ?
-  `).run(verificationTokenHash, expiresAt, row.id);
+  await execute(
+    `UPDATE platforms 
+     SET email_verification_token = $1,
+         email_verification_expires_at = $2,
+         updated_at = NOW()
+     WHERE id = $3`,
+    [verificationTokenHash, expiresAt, row.id]
+  );
 
   const platform: Platform = {
     id: row.id,
@@ -240,12 +239,12 @@ export async function resendVerificationEmail(
  * Validate platform API key
  */
 export async function validateApiKey(apiKey: string): Promise<Platform | null> {
-  const db = getDb();
   const apiKeyHash = await hashApiKey(apiKey);
 
-  const row = db
-    .prepare("SELECT * FROM platforms WHERE api_key_hash = ? AND status = 'active'")
-    .get(apiKeyHash) as any;
+  const row = await queryOne<any>(
+    "SELECT * FROM platforms WHERE api_key_hash = $1 AND status = 'active'",
+    [apiKeyHash]
+  );
 
   if (!row) return null;
 
@@ -267,11 +266,11 @@ export async function validateApiKey(apiKey: string): Promise<Platform | null> {
 /**
  * Get platform by ID
  */
-export function getPlatform(platformId: string): Platform | null {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM platforms WHERE id = ?")
-    .get(platformId) as any;
+export async function getPlatform(platformId: string): Promise<Platform | null> {
+  const row = await queryOne<any>(
+    "SELECT * FROM platforms WHERE id = $1",
+    [platformId]
+  );
 
   if (!row) return null;
 
@@ -293,15 +292,15 @@ export function getPlatform(platformId: string): Platform | null {
 /**
  * Increment platform verification count
  */
-export function incrementVerificationCount(platformId: string): void {
-  const db = getDb();
-  db.prepare(
+export async function incrementVerificationCount(platformId: string): Promise<void> {
+  await execute(
     `UPDATE platforms 
      SET verifications_count = verifications_count + 1,
          verifications_this_month = verifications_this_month + 1,
-         last_verification_at = datetime('now')
-     WHERE id = ?`
-  ).run(platformId);
+         last_verification_at = NOW()
+     WHERE id = $1`,
+    [platformId]
+  );
 }
 
 /**
@@ -315,7 +314,6 @@ export function checkRateLimit(platform: Platform): boolean {
 /**
  * Reset monthly verification counts (run via cron)
  */
-export function resetMonthlyCounts(): void {
-  const db = getDb();
-  db.prepare("UPDATE platforms SET verifications_this_month = 0").run();
+export async function resetMonthlyCounts(): Promise<void> {
+  await execute("UPDATE platforms SET verifications_this_month = 0");
 }

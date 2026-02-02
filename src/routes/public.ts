@@ -5,7 +5,7 @@
  */
 
 import { Hono } from "hono";
-import { getDb } from "../db/index.js";
+import { query, queryOne } from "../db/index.js";
 
 const publicRoutes = new Hono();
 
@@ -14,39 +14,26 @@ const publicRoutes = new Hono();
  * Get public statistics
  */
 publicRoutes.get("/stats", async (c) => {
-  const db = getDb();
+  const [totalAgents, verifiedAgents, platformCount, verificationsToday] = await Promise.all([
+    queryOne<{ count: string }>("SELECT COUNT(*) as count FROM agents"),
+    queryOne<{ count: string }>("SELECT COUNT(*) as count FROM agents WHERE status = 'verified'"),
+    queryOne<{ count: string }>("SELECT COUNT(*) as count FROM platforms WHERE status = 'active'"),
+    queryOne<{ count: string }>(
+      "SELECT COUNT(*) as count FROM challenges WHERE status = 'completed' AND DATE(completed_at) = CURRENT_DATE"
+    ),
+  ]);
 
-  const totalAgents = db
-    .prepare("SELECT COUNT(*) as count FROM agents")
-    .get() as { count: number };
-
-  const verifiedAgents = db
-    .prepare("SELECT COUNT(*) as count FROM agents WHERE status = 'verified'")
-    .get() as { count: number };
-
-  const platformCount = db
-    .prepare("SELECT COUNT(*) as count FROM platforms WHERE status = 'active'")
-    .get() as { count: number };
-
-  const verificationsToday = db
-    .prepare(
-      "SELECT COUNT(*) as count FROM challenges WHERE status = 'completed' AND date(completed_at) = date('now')"
-    )
-    .get() as { count: number };
-
-  const recentAgents = db
-    .prepare(
-      "SELECT id, name, verified_at FROM agents WHERE status = 'verified' ORDER BY verified_at DESC LIMIT 5"
-    )
-    .all() as { id: string; name: string; verified_at: string }[];
+  const recentAgents = await query<{ id: string; name: string; verified_at: string }>(
+    "SELECT id, name, verified_at FROM agents WHERE status = 'verified' ORDER BY verified_at DESC LIMIT 5"
+  );
 
   return c.json({
     success: true,
     stats: {
-      total_agents: totalAgents.count,
-      verified_agents: verifiedAgents.count,
-      platforms_integrated: platformCount.count,
-      verifications_today: verificationsToday.count,
+      total_agents: parseInt(totalAgents?.count || "0"),
+      verified_agents: parseInt(verifiedAgents?.count || "0"),
+      platforms_integrated: parseInt(platformCount?.count || "0"),
+      verifications_today: parseInt(verificationsToday?.count || "0"),
     },
     recent_agents: recentAgents.map((a) => ({
       id: a.id,
@@ -61,30 +48,28 @@ publicRoutes.get("/stats", async (c) => {
  * List verified agents (paginated)
  */
 publicRoutes.get("/agents", async (c) => {
-  const db = getDb();
   const page = parseInt(c.req.query("page") || "1", 10);
   const limit = Math.min(parseInt(c.req.query("limit") || "20", 10), 100);
   const offset = (page - 1) * limit;
   const sort = c.req.query("sort") || "recent";
 
-  let orderBy = "verified_at DESC";
-  if (sort === "name") orderBy = "name ASC";
+  let orderBy = "a.verified_at DESC";
+  if (sort === "name") orderBy = "a.name ASC";
 
-  const agents = db
-    .prepare(
-      `SELECT a.id, a.name, a.description, a.status, a.capabilities, a.verified_at, a.owner_id,
-              o.handle as owner_handle, o.provider as owner_provider
-       FROM agents a
-       LEFT JOIN owners o ON a.owner_id = o.id
-       WHERE a.status = 'verified' 
-       ORDER BY ${orderBy} 
-       LIMIT ? OFFSET ?`
-    )
-    .all(limit, offset) as any[];
+  const agents = await query<any>(
+    `SELECT a.id, a.name, a.description, a.status, a.capabilities, a.verified_at, a.owner_id,
+            o.handle as owner_handle, o.provider as owner_provider
+     FROM agents a
+     LEFT JOIN owners o ON a.owner_id = o.id
+     WHERE a.status = 'verified' 
+     ORDER BY ${orderBy} 
+     LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  );
 
-  const total = db
-    .prepare("SELECT COUNT(*) as count FROM agents WHERE status = 'verified'")
-    .get() as { count: number };
+  const total = await queryOne<{ count: string }>(
+    "SELECT COUNT(*) as count FROM agents WHERE status = 'verified'"
+  );
 
   const baseUrl = process.env.BASE_URL || "https://knowyourclaw.com";
 
@@ -107,8 +92,8 @@ publicRoutes.get("/agents", async (c) => {
     pagination: {
       page,
       limit,
-      total: total.count,
-      total_pages: Math.ceil(total.count / limit),
+      total: parseInt(total?.count || "0"),
+      total_pages: Math.ceil(parseInt(total?.count || "0") / limit),
     },
   });
 });

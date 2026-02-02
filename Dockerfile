@@ -1,9 +1,6 @@
-# AgentProof Dockerfile - API + UI
+# AgentProof Dockerfile - API + UI (PostgreSQL version)
 FROM node:20-alpine AS base
 WORKDIR /app
-
-# Install build dependencies for native modules (better-sqlite3)
-RUN apk add --no-cache python3 make g++ 
 
 # Install backend dependencies
 FROM base AS deps
@@ -36,13 +33,6 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV DATABASE_PATH=/app/data/agentproof.db
-
-# Install runtime dependencies for better-sqlite3
-RUN apk add --no-cache libstdc++
-
-# Create data directory
-RUN mkdir -p /app/data
 
 # Copy built backend
 COPY --from=builder /app/dist ./dist

@@ -3,7 +3,7 @@
  * Multi-signal rate limiting to prevent farming and human bypass
  */
 
-import { getDb } from "../db/index.js";
+import { query, queryOne, execute } from "../db/index.js";
 import { createHash } from "crypto";
 
 export interface RateLimitResult {
@@ -64,50 +64,47 @@ export function generateFingerprint(
 /**
  * Record a challenge attempt
  */
-export function recordChallengeAttempt(
+export async function recordChallengeAttempt(
   ip: string,
   fingerprint: string,
   challengeId: string,
   publicKey?: string
-): void {
-  const db = getDb();
-  
-  db.prepare(`
-    INSERT INTO rate_limit_log (ip, fingerprint, challenge_id, public_key, created_at)
-    VALUES (?, ?, ?, ?, datetime('now'))
-  `).run(ip, fingerprint, challengeId, publicKey);
+): Promise<void> {
+  await execute(
+    `INSERT INTO rate_limit_log (ip, fingerprint, challenge_id, public_key, created_at)
+     VALUES ($1, $2, $3, $4, NOW())`,
+    [ip, fingerprint, challengeId, publicKey]
+  );
 }
 
 /**
  * Record challenge completion timing
  */
-export function recordCompletionTiming(
+export async function recordCompletionTiming(
   ip: string,
   fingerprint: string,
   timeTakenMs: number
-): void {
-  const db = getDb();
-  
-  db.prepare(`
-    INSERT INTO timing_log (ip, fingerprint, time_taken_ms, created_at)
-    VALUES (?, ?, ?, datetime('now'))
-  `).run(ip, fingerprint, timeTakenMs);
+): Promise<void> {
+  await execute(
+    `INSERT INTO timing_log (ip, fingerprint, time_taken_ms, created_at)
+     VALUES ($1, $2, $3, NOW())`,
+    [ip, fingerprint, timeTakenMs]
+  );
 }
 
 /**
  * Check if timing patterns are suspicious (bot farming detection)
  */
-function checkTimingPatterns(ip: string, fingerprint: string): { suspicious: boolean; reason?: string } {
-  const db = getDb();
-  
+async function checkTimingPatterns(ip: string, fingerprint: string): Promise<{ suspicious: boolean; reason?: string }> {
   // Get last 10 completion times for this IP/fingerprint
-  const timings = db.prepare(`
-    SELECT time_taken_ms FROM timing_log
-    WHERE (ip = ? OR fingerprint = ?)
-    AND created_at > datetime('now', '-1 hour')
-    ORDER BY created_at DESC
-    LIMIT 10
-  `).all(ip, fingerprint) as { time_taken_ms: number }[];
+  const timings = await query<{ time_taken_ms: number }>(
+    `SELECT time_taken_ms FROM timing_log
+     WHERE (ip = $1 OR fingerprint = $2)
+     AND created_at > NOW() - INTERVAL '1 hour'
+     ORDER BY created_at DESC
+     LIMIT 10`,
+    [ip, fingerprint]
+  );
   
   if (timings.length < 3) {
     return { suspicious: false };
@@ -140,13 +137,12 @@ function checkTimingPatterns(ip: string, fingerprint: string): { suspicious: boo
 /**
  * Check rate limits across all signals
  */
-export function checkRateLimits(
+export async function checkRateLimits(
   ip: string,
   fingerprint: string,
   config: Partial<RateLimitConfig> = {}
-): RateLimitResult {
+): Promise<RateLimitResult> {
   const cfg = { ...DEFAULT_CONFIG, ...config };
-  const db = getDb();
   
   const result: RateLimitResult = {
     allowed: true,
@@ -159,40 +155,43 @@ export function checkRateLimits(
   };
   
   // Check IP rate limit
-  const ipCount = db.prepare(`
-    SELECT COUNT(*) as count FROM rate_limit_log
-    WHERE ip = ? AND created_at > datetime('now', '-1 hour')
-  `).get(ip) as { count: number };
+  const ipCount = await queryOne<{ count: string }>(
+    `SELECT COUNT(*) as count FROM rate_limit_log
+     WHERE ip = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
+    [ip]
+  );
   
-  if (ipCount.count >= cfg.challengesPerHourPerIP) {
+  if (parseInt(ipCount?.count || "0") >= cfg.challengesPerHourPerIP) {
     result.allowed = false;
     result.signals.ip = false;
-    result.reason = `IP rate limit exceeded (${ipCount.count}/${cfg.challengesPerHourPerIP} per hour)`;
+    result.reason = `IP rate limit exceeded (${ipCount?.count}/${cfg.challengesPerHourPerIP} per hour)`;
     result.waitMs = 60 * 60 * 1000; // 1 hour
     return result;
   }
   
   // Check fingerprint rate limit
-  const fpCount = db.prepare(`
-    SELECT COUNT(*) as count FROM rate_limit_log
-    WHERE fingerprint = ? AND created_at > datetime('now', '-1 hour')
-  `).get(fingerprint) as { count: number };
+  const fpCount = await queryOne<{ count: string }>(
+    `SELECT COUNT(*) as count FROM rate_limit_log
+     WHERE fingerprint = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
+    [fingerprint]
+  );
   
-  if (fpCount.count >= cfg.challengesPerHourPerFingerprint) {
+  if (parseInt(fpCount?.count || "0") >= cfg.challengesPerHourPerFingerprint) {
     result.allowed = false;
     result.signals.fingerprint = false;
-    result.reason = `Fingerprint rate limit exceeded (${fpCount.count}/${cfg.challengesPerHourPerFingerprint} per hour)`;
+    result.reason = `Fingerprint rate limit exceeded (${fpCount?.count}/${cfg.challengesPerHourPerFingerprint} per hour)`;
     result.waitMs = 60 * 60 * 1000;
     return result;
   }
   
   // Check minimum time between challenges
-  const lastChallenge = db.prepare(`
-    SELECT created_at FROM rate_limit_log
-    WHERE ip = ? OR fingerprint = ?
-    ORDER BY created_at DESC
-    LIMIT 1
-  `).get(ip, fingerprint) as { created_at: string } | undefined;
+  const lastChallenge = await queryOne<{ created_at: string }>(
+    `SELECT created_at FROM rate_limit_log
+     WHERE ip = $1 OR fingerprint = $2
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [ip, fingerprint]
+  );
   
   if (lastChallenge) {
     const lastTime = new Date(lastChallenge.created_at).getTime();
@@ -208,22 +207,23 @@ export function checkRateLimits(
   }
   
   // Check public key farming (too many unique keys from same IP)
-  const uniqueKeys = db.prepare(`
-    SELECT COUNT(DISTINCT public_key) as count FROM rate_limit_log
-    WHERE ip = ? AND public_key IS NOT NULL
-    AND created_at > datetime('now', '-1 day')
-  `).get(ip) as { count: number };
+  const uniqueKeys = await queryOne<{ count: string }>(
+    `SELECT COUNT(DISTINCT public_key) as count FROM rate_limit_log
+     WHERE ip = $1 AND public_key IS NOT NULL
+     AND created_at > NOW() - INTERVAL '1 day'`,
+    [ip]
+  );
   
-  if (uniqueKeys.count >= cfg.maxPublicKeysPerIPPerDay) {
+  if (parseInt(uniqueKeys?.count || "0") >= cfg.maxPublicKeysPerIPPerDay) {
     result.allowed = false;
     result.signals.publicKey = false;
-    result.reason = `Too many unique agent registrations from this IP (${uniqueKeys.count}/${cfg.maxPublicKeysPerIPPerDay} per day)`;
+    result.reason = `Too many unique agent registrations from this IP (${uniqueKeys?.count}/${cfg.maxPublicKeysPerIPPerDay} per day)`;
     result.waitMs = 24 * 60 * 60 * 1000;
     return result;
   }
   
   // Check timing patterns
-  const timingCheck = checkTimingPatterns(ip, fingerprint);
+  const timingCheck = await checkTimingPatterns(ip, fingerprint);
   if (timingCheck.suspicious) {
     result.signals.timing = false;
     // Don't block, but flag for review
@@ -292,16 +292,16 @@ export function analyzeCompletionTime(
 /**
  * Overall assessment combining multiple signals
  */
-export function assessSubmission(
+export async function assessSubmission(
   timeTakenMs: number,
   difficulty: "easy" | "standard" | "hard",
   ip: string,
   fingerprint: string
-): {
+): Promise<{
   isLikelyAgent: boolean;
   confidence: number;
   flags: string[];
-} {
+}> {
   const flags: string[] = [];
   let confidence = 1.0;
   
@@ -316,7 +316,7 @@ export function assessSubmission(
   }
   
   // Timing pattern analysis
-  const timingPatterns = checkTimingPatterns(ip, fingerprint);
+  const timingPatterns = await checkTimingPatterns(ip, fingerprint);
   if (timingPatterns.suspicious) {
     flags.push(`PATTERN: ${timingPatterns.reason}`);
     confidence *= 0.5;
