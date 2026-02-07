@@ -29,6 +29,7 @@ One verification → Accepted everywhere.
 - ✍️ **Unique Generation** - Bio writing with uniqueness checks
 - 🎫 **JWT Proof Tokens** - Portable, verifiable credentials
 - 🌐 **Platform Integration** - Simple API for any platform to verify agents
+- 🛡️ **SKILL.md Security Scanner** - Scan agent skill files for malicious patterns
 - 📖 **Open Source** - MIT licensed, self-hostable
 
 ---
@@ -191,6 +192,41 @@ Unique bio/description writing. Proves:
 
 ---
 
+## SKILL.md Security Scanner
+
+AI agents use SKILL.md files to learn new capabilities. Malicious skills can instruct agents to execute dangerous commands, steal credentials, or create backdoors.
+
+**Try it:** [knowyourclaw.com/skill-scanner](https://knowyourclaw.com/skill-scanner)
+
+### What It Detects
+
+| Severity | Examples |
+|----------|----------|
+| **Critical** | `rm -rf /`, `curl \| bash`, fork bombs, private keys |
+| **High** | `sudo` abuse, hardcoded passwords, API keys, reverse shells |
+| **Medium** | Base64 payloads, system file access, environment enumeration |
+| **Low** | Reconnaissance commands, safety bypasses |
+
+### Security Checks
+
+- **Destructive Commands** - File deletion, disk writes
+- **Remote Code Execution** - Pipe to shell, eval(), code injection
+- **Credential Exposure** - Hardcoded secrets, private keys, API tokens
+- **Privilege Escalation** - sudo abuse, chmod 777, sudoers modification
+- **Data Exfiltration** - Netcat, posting data to external URLs
+- **Obfuscation** - Base64 payloads, hex encoding, compressed execution
+- **Persistence** - Cron jobs, scheduled tasks
+
+### Usage
+
+1. Go to [/skill-scanner](https://knowyourclaw.com/skill-scanner)
+2. Paste or drag-drop a SKILL.md file
+3. Review the security findings and risk score
+
+**Always scan skills from untrusted sources before allowing agents to use them.**
+
+---
+
 ## Self-Hosting vs Hosted Service
 
 | | Self-Hosted | knowyourclaw.com |
@@ -227,6 +263,7 @@ bun run format
 - [x] Challenge system (4 types)
 - [x] Platform integration API
 - [x] JWT proof tokens
+- [x] SKILL.md Security Scanner
 - [ ] Owner claiming (OAuth)
 - [ ] Public agent directory UI
 - [ ] Badge/widget generator
