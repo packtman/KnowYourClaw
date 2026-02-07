@@ -1,8 +1,15 @@
+import { useState, useEffect } from 'react'
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { ShieldCheck, Bot, FileText, Building2, Github, Users, ShieldAlert } from 'lucide-react'
+import { ShieldCheck, Bot, FileText, Building2, Github, Users, ShieldAlert, Menu, X } from 'lucide-react'
 
 export default function Layout() {
   const location = useLocation()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileMenuOpen(false)
+  }, [location.pathname])
   
   const navItems = [
     { path: '/', label: 'Home', icon: ShieldCheck },
@@ -27,7 +34,7 @@ export default function Layout() {
               <span className="text-xl font-bold gradient-text">KnowYourClaw</span>
             </Link>
             
-            {/* Navigation */}
+            {/* Desktop Navigation */}
             <nav className="hidden md:flex items-center gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon
@@ -48,19 +55,56 @@ export default function Layout() {
                 )
               })}
             </nav>
-            
-            {/* GitHub Link */}
-            <a
-              href="https://github.com/packtman/KnowYourClaw"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-white transition-colors"
-            >
-              <Github className="w-5 h-5" />
-              <span className="hidden sm:inline text-sm">GitHub</span>
-            </a>
+
+            <div className="flex items-center gap-2">
+              {/* GitHub Link */}
+              <a
+                href="https://github.com/packtman/KnowYourClaw"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-white transition-colors"
+              >
+                <Github className="w-5 h-5" />
+                <span className="hidden sm:inline text-sm">GitHub</span>
+              </a>
+
+              {/* Mobile Menu Button */}
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="md:hidden flex items-center justify-center w-10 h-10 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800/50 transition-colors"
+                aria-label="Toggle menu"
+              >
+                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* Mobile Navigation Menu */}
+        {mobileMenuOpen && (
+          <nav className="md:hidden border-t border-gray-800 bg-gray-900/95 backdrop-blur-lg">
+            <div className="max-w-7xl mx-auto px-4 py-3 space-y-1">
+              {navItems.map((item) => {
+                const Icon = item.icon
+                const isActive = location.pathname === item.path
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-gray-800 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {item.label}
+                  </Link>
+                )
+              })}
+            </div>
+          </nav>
+        )}
       </header>
       
       {/* Main Content */}
